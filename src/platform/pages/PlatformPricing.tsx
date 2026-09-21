@@ -4,6 +4,8 @@ import {
   listPlatformPlans,
   listPlatformPricingRules,
   simulatePlatformPricing,
+  type PlatformOrganizationLookupDto,
+  type PlatformRestaurantLookupDto,
   type PricingScopeType,
 } from '@/platform/api/platformAdmin'
 import { isApiError } from '@/api/errors'
@@ -24,11 +26,13 @@ import { Num } from '@/components/ui/Num'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
+import { OrganizationPicker, RestaurantPicker } from '@/platform/ui/EntitySearchPicker'
 import { isoDaysAgo } from '@/platform/ui/dates'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
 import { asRecord, pickRaw } from '@/platform/ui/recordFields'
+import { platformRowAccent } from '@/platform/ui/statusTone'
 
 function toRows(
   data: { items?: Record<string, unknown>[] } | Record<string, unknown>[] | null,
@@ -52,13 +56,16 @@ export function PlatformPricingPage() {
   const [confirmActivate, setConfirmActivate] = useState(false)
   const [simulation, setSimulation] = useState<Record<string, unknown> | null>(null)
   const [scopeType, setScopeType] = useState<PricingScopeType>('Platform')
-  const [scopeId, setScopeId] = useState('')
   const [flatAmount, setFlatAmount] = useState('1000')
   const [flatCurrency, setFlatCurrency] = useState('SYP')
   const [effectiveFrom, setEffectiveFrom] = useState(() => isoDaysAgo(0))
   const [label, setLabel] = useState('')
   const [supersedesRuleId, setSupersedesRuleId] = useState('')
-  const [simRestaurantId, setSimRestaurantId] = useState('')
+  const [scopeRestaurant, setScopeRestaurant] = useState<PlatformRestaurantLookupDto | null>(null)
+  const [scopeOrganization, setScopeOrganization] = useState<PlatformOrganizationLookupDto | null>(
+    null,
+  )
+  const [simRestaurant, setSimRestaurant] = useState<PlatformRestaurantLookupDto | null>(null)
   const [simAmount, setSimAmount] = useState('1200')
   const [simCurrency, setSimCurrency] = useState('SYP')
   const [lookbackDays, setLookbackDays] = useState('30')
@@ -106,9 +113,13 @@ export function PlatformPricingPage() {
       toast('error', p.activateValidation)
       return
     }
-    if (scopeType !== 'Platform' && !scopeId.trim()) {
-      toast('error', p.activateValidation)
-      return
+    if (scopeType !== 'Platform') {
+      const scopeId =
+        scopeType === 'Restaurant' ? scopeRestaurant?.id : scopeOrganization?.id
+      if (!scopeId) {
+        toast('error', p.activateValidation)
+        return
+      }
     }
     setBusy(true)
     try {
@@ -119,7 +130,11 @@ export function PlatformPricingPage() {
         flatCurrency: flatCurrency.trim(),
         effectiveFrom,
         label: label.trim(),
-        ...(scopeType === 'Platform' ? {} : { scopeId: scopeId.trim() }),
+        ...(scopeType === 'Restaurant'
+          ? { scopeId: scopeRestaurant?.id }
+          : scopeType === 'Organization'
+            ? { scopeId: scopeOrganization?.id }
+            : {}),
         ...(supersedesRuleId.trim() ? { supersedesRuleId: supersedesRuleId.trim() } : {}),
       })
       toast('success', p.activateSuccess)
@@ -136,14 +151,14 @@ export function PlatformPricingPage() {
   const runSimulate = async (): Promise<void> => {
     const amount = Number(simAmount)
     const days = Number(lookbackDays)
-    if (!simRestaurantId.trim() || !Number.isFinite(amount) || !simCurrency.trim()) {
+    if (!simRestaurant?.id || !Number.isFinite(amount) || !simCurrency.trim()) {
       toast('error', p.simulateValidation)
       return
     }
     setBusy(true)
     try {
       const result = await simulatePlatformPricing({
-        restaurantId: simRestaurantId.trim(),
+        restaurantId: simRestaurant.id,
         proposedFlatAmount: amount,
         proposedFlatCurrency: simCurrency.trim(),
         ...(Number.isFinite(days) && days > 0 ? { lookbackDays: days } : {}),
@@ -179,20 +194,35 @@ export function PlatformPricingPage() {
               <Select
                 label={p.scopeType}
                 value={scopeType}
-                onChange={(e) => setScopeType(e.target.value as PricingScopeType)}
+                onChange={(e) => {
+                  setScopeType(e.target.value as PricingScopeType)
+                  setScopeRestaurant(null)
+                  setScopeOrganization(null)
+                }}
                 disabled={!canMutate || busy}
               >
                 <option value="Platform">{p.scopePlatform}</option>
                 <option value="Organization">{p.scopeOrganization}</option>
                 <option value="Restaurant">{p.scopeRestaurant}</option>
               </Select>
-              {scopeType !== 'Platform' && (
-                <Input
+              {scopeType === 'Restaurant' && (
+                <RestaurantPicker
+                  selected={scopeRestaurant}
+                  onSelect={setScopeRestaurant}
+                  disabled={!canMutate || busy}
+                  required
                   label={p.scopeId}
                   hint={p.scopeIdHint}
-                  value={scopeId}
-                  onChange={(e) => setScopeId(e.target.value)}
+                />
+              )}
+              {scopeType === 'Organization' && (
+                <OrganizationPicker
+                  selected={scopeOrganization}
+                  onSelect={setScopeOrganization}
                   disabled={!canMutate || busy}
+                  required
+                  label={p.scopeId}
+                  hint={p.scopeIdHint}
                 />
               )}
               <Input
@@ -223,12 +253,23 @@ export function PlatformPricingPage() {
                 onChange={(e) => setEffectiveFrom(e.target.value)}
                 disabled={!canMutate || busy}
               />
-              <Input
+              <Select
                 label={p.supersedesRuleId}
                 value={supersedesRuleId}
                 onChange={(e) => setSupersedesRuleId(e.target.value)}
                 disabled={!canMutate || busy}
-              />
+              >
+                <option value="">—</option>
+                {rules.map((raw, index) => {
+                  const row = asRecord(raw)
+                  const id = String(pickRaw(row, ['id']) ?? index)
+                  return (
+                    <option key={id} value={id}>
+                      {String(pickRaw(row, ['label', 'name']) ?? id)}
+                    </option>
+                  )
+                })}
+              </Select>
               <Button disabled={!canMutate} loading={busy} onClick={() => setConfirmActivate(true)}>
                 {p.activateSubmit}
               </Button>
@@ -237,11 +278,12 @@ export function PlatformPricingPage() {
             <Card className="space-y-4">
               <CardTitle>{p.simulateTitle}</CardTitle>
               <p className="text-body-sm text-on-surface-variant">{p.simulateHint}</p>
-              <Input
-                label={p.simulateRestaurantId}
-                value={simRestaurantId}
-                onChange={(e) => setSimRestaurantId(e.target.value)}
+              <RestaurantPicker
+                selected={simRestaurant}
+                onSelect={setSimRestaurant}
                 disabled={busy}
+                required
+                label={p.simulateRestaurant}
               />
               <div className="grid grid-cols-2 gap-3">
                 <Input
@@ -300,7 +342,10 @@ export function PlatformPricingPage() {
                   {rules.map((raw, index) => {
                     const row = asRecord(raw)
                     return (
-                      <DataTableRow key={String(pickRaw(row, ['id']) ?? index)}>
+                      <DataTableRow
+                        key={String(pickRaw(row, ['id']) ?? index)}
+                        accent={platformRowAccent(String(pickRaw(row, ['status']) ?? ''))}
+                      >
                         <DataTableCell className="font-medium">
                           {String(pickRaw(row, ['label', 'name']) ?? '—')}
                         </DataTableCell>

@@ -161,22 +161,12 @@ export function PlatformLoginPage() {
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-label-sm text-on-surface-variant space-y-2">
+          <p className="mt-6 text-center text-label-sm text-on-surface-variant">
             {isPlatformPreviewEnabled() && (
-              <span className="block">
-                <Link to="/platform" className="text-primary font-semibold hover:underline">
-                  {t.platform.preview.browseWithoutLogin}
-                </Link>
-              </span>
+              <Link to="/platform" className="text-primary font-semibold hover:underline">
+                {t.platform.preview.browseWithoutLogin}
+              </Link>
             )}
-            <span className="block">
-              <a
-                href={import.meta.env.VITE_RESTAURANT_APP_URL ?? 'http://localhost:5173/login'}
-                className="text-primary font-semibold hover:underline"
-              >
-                {p.restaurantLogin}
-              </a>
-            </span>
           </p>
         </div>
       </main>

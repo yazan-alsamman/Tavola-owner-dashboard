@@ -4,6 +4,7 @@ import {
   listPlatformNotifications,
   sendPlatformNotification,
   type PlatformNotificationBroadcastDto,
+  type PlatformUserAccountDto,
 } from '@/platform/api/platformAdmin'
 import { isApiError } from '@/api/errors'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -20,14 +21,16 @@ import {
   DataTableRow,
   DataTableCell,
 } from '@/components/ui/DataTable'
+import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
 import { useNavigate } from 'react-router-dom'
-import { CopyId } from '@/platform/ui/CopyId'
+import { AccountPicker } from '@/platform/ui/EntitySearchPicker'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { formatPlatformDateTime } from '@/platform/ui/dates'
+import { platformRowAccent } from '@/platform/ui/statusTone'
 
 const PAGE_SIZE = 20
 
@@ -44,7 +47,7 @@ export function PlatformNotificationsPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [oneTitle, setOneTitle] = useState('')
   const [oneBody, setOneBody] = useState('')
-  const [targetUserId, setTargetUserId] = useState('')
+  const [targetUser, setTargetUser] = useState<PlatformUserAccountDto | null>(null)
   const [confirmOne, setConfirmOne] = useState(false)
 
   const [historyStatus, setHistoryStatus] = useState('')
@@ -118,19 +121,19 @@ export function PlatformNotificationsPage() {
   }
 
   const sendOne = async (): Promise<void> => {
-    if (!targetUserId.trim() || !oneTitle.trim() || !oneBody.trim()) {
+    if (!targetUser?.id || !oneTitle.trim() || !oneBody.trim()) {
       toast('error', p.sendOneValidation)
       return
     }
     setSubmitting(true)
     try {
       await sendPlatformNotification({
-        targetUserId: targetUserId.trim(),
+        targetUserId: targetUser.id,
         title: oneTitle.trim(),
         body: oneBody.trim(),
       })
       toast('success', p.sendOneSuccess)
-      setTargetUserId('')
+      setTargetUser(null)
       setOneTitle('')
       setOneBody('')
       setConfirmOne(false)
@@ -145,7 +148,7 @@ export function PlatformNotificationsPage() {
   if (!canQuery) {
     return (
       <div className="space-y-6">
-        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="notifications" />
         <Card padding="none">
           <EmptyState
             icon="lock"
@@ -162,7 +165,7 @@ export function PlatformNotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="notifications" />
 
       <div className="grid max-w-4xl grid-cols-1 gap-4 xl:grid-cols-2">
         <Card className="space-y-4">
@@ -190,6 +193,7 @@ export function PlatformNotificationsPage() {
               rows={5}
             />
             <Button type="submit" disabled={!canMutate} loading={submitting}>
+              <MaterialIcon name="campaign" size={16} />
               {p.send}
             </Button>
           </form>
@@ -204,12 +208,14 @@ export function PlatformNotificationsPage() {
             }}
             className="space-y-4"
           >
-            <Input
-              label={p.targetUserId}
-              value={targetUserId}
-              onChange={(e) => setTargetUserId(e.target.value)}
+            <AccountPicker
+              selected={targetUser}
+              onSelect={setTargetUser}
               required
               disabled={!canMutate || submitting}
+              label={p.targetUser}
+              hint={p.sendOneHint}
+              accountType="Customer"
             />
             <Input
               label={p.fieldTitle}
@@ -227,6 +233,7 @@ export function PlatformNotificationsPage() {
               rows={5}
             />
             <Button type="submit" disabled={!canMutate} loading={submitting}>
+              <MaterialIcon name="send" size={16} />
               {p.sendOne}
             </Button>
           </form>
@@ -294,11 +301,10 @@ export function PlatformNotificationsPage() {
                 <DataTableHeader>{p.colSender}</DataTableHeader>
                 <DataTableHeader>{p.colRecipients}</DataTableHeader>
                 <DataTableHeader>{p.colCreated}</DataTableHeader>
-                <DataTableHeader>{p.colId}</DataTableHeader>
               </DataTableHead>
               <DataTableBody>
                 {items.map((row) => (
-                  <DataTableRow key={row.id}>
+                  <DataTableRow key={row.id} accent={platformRowAccent(row.status)}>
                     <DataTableCell className="font-medium">{row.title ?? '—'}</DataTableCell>
                     <DataTableCell>
                       <PlatformStatusBadge status={row.status} />
@@ -307,9 +313,6 @@ export function PlatformNotificationsPage() {
                     <DataTableCell>{row.totalRecipients ?? '—'}</DataTableCell>
                     <DataTableCell>
                       {row.createdAt ? formatPlatformDateTime(row.createdAt, locale) : '—'}
-                    </DataTableCell>
-                    <DataTableCell>
-                      <CopyId value={row.id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
                     </DataTableCell>
                   </DataTableRow>
                 ))}

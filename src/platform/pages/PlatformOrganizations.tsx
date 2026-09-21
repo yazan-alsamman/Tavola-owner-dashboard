@@ -9,6 +9,7 @@ import {
   transferPlatformOrganizationOwnership,
   type PlatformOrganizationLookupDto,
   type PlatformOrganizationStatus,
+  type PlatformUserAccountDto,
 } from '@/platform/api/platformAdmin'
 import { isApiError } from '@/api/errors'
 import { Input, Select } from '@/components/ui/Input'
@@ -27,12 +28,18 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { EntityName } from '@/platform/ui/EntityName'
+import { AccountPicker } from '@/platform/ui/EntitySearchPicker'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
-import { lifecycleActionsFor, type LifecycleAction } from '@/platform/ui/statusTone'
+import {
+  lifecycleActionIcon,
+  lifecycleActionsFor,
+  platformRowAccent,
+  type LifecycleAction,
+} from '@/platform/ui/statusTone'
 import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
 
 const PAGE_SIZE = 20
@@ -55,7 +62,7 @@ export function PlatformOrganizationsPage() {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<{ id: string; action: LifecycleAction } | null>(null)
   const [transferId, setTransferId] = useState<string | null>(null)
-  const [newOwnerUserId, setNewOwnerUserId] = useState('')
+  const [newOwner, setNewOwner] = useState<PlatformUserAccountDto | null>(null)
   const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<PlatformOrganizationLookupDto | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
@@ -205,19 +212,22 @@ export function PlatformOrganizationsPage() {
             <DataTableHeader>{p.colName}</DataTableHeader>
             <DataTableHeader>{p.colSlug}</DataTableHeader>
             <DataTableHeader>{p.colStatus}</DataTableHeader>
-            <DataTableHeader>{p.colId}</DataTableHeader>
             <DataTableHeader>{p.colActions}</DataTableHeader>
           </DataTableHead>
           <DataTableBody>
             {items.map((row) => (
-              <DataTableRow key={row.id}>
-                <DataTableCell className="font-medium">{row.name ?? '—'}</DataTableCell>
+              <DataTableRow key={row.id} accent={platformRowAccent(row.status, row.deletedAt)}>
+                <DataTableCell>
+                  <EntityName
+                    name={row.name ?? '—'}
+                    secondary={row.slug}
+                    icon="corporate_fare"
+                    status={row.status}
+                  />
+                </DataTableCell>
                 <DataTableCell>{row.slug ?? '—'}</DataTableCell>
                 <DataTableCell>
                   <PlatformStatusBadge status={row.status} deletedAt={row.deletedAt} />
-                </DataTableCell>
-                <DataTableCell>
-                  <CopyId value={row.id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
                 </DataTableCell>
                 <DataTableCell>
                   <div className="flex flex-wrap gap-1">
@@ -227,6 +237,7 @@ export function PlatformOrganizationsPage() {
                       disabled={detailBusy}
                       onClick={() => void openDetail(row.id)}
                     >
+                      <MaterialIcon name="visibility" size={14} />
                       {p.view}
                     </Button>
                     {lifecycleActionsFor(row.status, row.deletedAt).map((action) => (
@@ -237,6 +248,7 @@ export function PlatformOrganizationsPage() {
                         disabled={!canMutate || busy}
                         onClick={() => setPending({ id: row.id, action })}
                       >
+                        <MaterialIcon name={lifecycleActionIcon[action]} size={14} />
                         {p[action]}
                       </Button>
                     ))}
@@ -247,9 +259,10 @@ export function PlatformOrganizationsPage() {
                         disabled={!canMutate || busy}
                         onClick={() => {
                           setTransferId(row.id)
-                          setNewOwnerUserId('')
+                          setNewOwner(null)
                         }}
                       >
+                        <MaterialIcon name="how_to_reg" size={14} />
                         {p.transfer}
                       </Button>
                     )}
@@ -304,14 +317,14 @@ export function PlatformOrganizationsPage() {
               onClick={() => {
                 void (async () => {
                   if (!transferId) return
-                  if (!newOwnerUserId.trim()) {
+                  if (!newOwner?.id) {
                     toast('error', p.transferValidation)
                     return
                   }
                   setBusy(true)
                   try {
                     await transferPlatformOrganizationOwnership(transferId, {
-                      newOwnerUserId: newOwnerUserId.trim(),
+                      newOwnerUserId: newOwner.id,
                     })
                     toast('success', p.transferSuccess)
                     setTransferId(null)
@@ -329,11 +342,13 @@ export function PlatformOrganizationsPage() {
           </>
         }
       >
-        <Input
-          label={p.newOwnerUserId}
-          value={newOwnerUserId}
-          onChange={(e) => setNewOwnerUserId(e.target.value)}
+        <AccountPicker
+          selected={newOwner}
+          onSelect={setNewOwner}
           disabled={busy}
+          required
+          label={p.newOwner}
+          hint={p.newOwnerHint}
         />
       </Modal>
 

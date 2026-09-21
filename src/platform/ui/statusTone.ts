@@ -2,6 +2,23 @@ import type { BadgeTone } from '@/components/ui/Badge'
 
 export type LifecycleAction = 'suspend' | 'reactivate' | 'delete' | 'restore'
 
+export const lifecycleActionIcon: Record<LifecycleAction, string> = {
+  suspend: 'pause',
+  reactivate: 'play_arrow',
+  delete: 'delete',
+  restore: 'restore',
+}
+
+export function platformStatusIcon(key: StatusLabelKey): string {
+  if (key === 'active') return 'check_circle'
+  if (key === 'suspended') return 'pause_circle'
+  if (key === 'deleted') return 'cancel'
+  if (key === 'cancelled') return 'block'
+  if (key === 'expired') return 'event_busy'
+  if (key === 'pending') return 'hourglass_empty'
+  return 'help'
+}
+
 function normalizeStatus(status: string | undefined, deletedAt?: string | null): string {
   if (deletedAt) return 'deleted'
   return (status ?? '').trim().toLowerCase()
@@ -40,6 +57,15 @@ export function platformStatusLabelKey(
   if (value === 'expired') return 'expired'
   if (value === 'pending') return 'pending'
   return 'unknown'
+}
+
+export function platformRowAccent(
+  status?: string,
+  deletedAt?: string | null,
+): 'success' | 'warning' | 'danger' | 'info' | undefined {
+  const tone = platformStatusTone(status, deletedAt)
+  if (tone === 'neutral' || tone === 'brand') return undefined
+  return tone
 }
 
 export function lifecycleActionsFor(

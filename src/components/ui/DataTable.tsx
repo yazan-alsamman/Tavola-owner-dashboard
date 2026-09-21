@@ -106,9 +106,25 @@ interface DataTableRowProps {
   onClick?: () => void
   className?: string
   selected?: boolean
+  /** Soft start-edge color for lifecycle status. */
+  accent?: 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 }
 
-export function DataTableRow({ children, onClick, className, selected = false }: DataTableRowProps) {
+const rowAccent = {
+  success: '[&>td:first-child]:border-s-[3px] [&>td:first-child]:border-s-success',
+  warning: '[&>td:first-child]:border-s-[3px] [&>td:first-child]:border-s-warning',
+  danger: '[&>td:first-child]:border-s-[3px] [&>td:first-child]:border-s-danger',
+  info: '[&>td:first-child]:border-s-[3px] [&>td:first-child]:border-s-info',
+  neutral: '',
+}
+
+export function DataTableRow({
+  children,
+  onClick,
+  className,
+  selected = false,
+  accent,
+}: DataTableRowProps) {
   return (
     <tr
       className={cn(
@@ -116,6 +132,7 @@ export function DataTableRow({ children, onClick, className, selected = false }:
         '[&>td]:border-b [&>td]:border-outline-variant/40',
         '[&:last-child>td]:border-b-0',
         selected ? 'bg-primary-subtle' : 'hover:bg-surface-container-low/70',
+        accent && rowAccent[accent],
         onClick && 'cursor-pointer',
         className,
       )}

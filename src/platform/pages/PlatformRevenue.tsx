@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   exportPlatformRevenue,
   getPlatformRevenueReport,
+  searchPlatformOrganizations,
+  searchPlatformRestaurants,
+  type PlatformOrganizationLookupDto,
+  type PlatformRestaurantLookupDto,
   type RevenueGroupBy,
   type RevenueReportDto,
 } from '@/platform/api/platformAdmin'
@@ -21,6 +25,7 @@ import { Num } from '@/components/ui/Num'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
+import { OrganizationPicker, RestaurantPicker, entityLabel } from '@/platform/ui/EntitySearchPicker'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
 import { isoDaysAgo, todayIso } from '@/platform/ui/dates'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
@@ -50,10 +55,15 @@ export function PlatformRevenuePage() {
   const [from, setFrom] = useState(() => isoDaysAgo(30))
   const [to, setTo] = useState(() => todayIso())
   const [groupBy, setGroupBy] = useState<RevenueGroupBy>('day')
+  const [restaurant, setRestaurant] = useState<PlatformRestaurantLookupDto | null>(null)
+  const [organization, setOrganization] = useState<PlatformOrganizationLookupDto | null>(null)
+  const [nameMap, setNameMap] = useState<Record<string, string>>({})
   const [applied, setApplied] = useState(() => ({
     from: isoDaysAgo(30),
     to: todayIso(),
     groupBy: 'day' as RevenueGroupBy,
+    restaurantId: undefined as string | undefined,
+    organizationId: undefined as string | undefined,
   }))
   const [report, setReport] = useState<RevenueReportDto | null>(null)
   const [loading, setLoading] = useState(true)
@@ -83,7 +93,22 @@ export function PlatformRevenuePage() {
       setError(null)
       try {
         const result = await getPlatformRevenueReport(applied, signal)
-        if (!signal?.aborted) setReport(result)
+        if (signal?.aborted) return
+        setReport(result)
+        if (applied.groupBy === 'restaurant' || applied.groupBy === 'organization') {
+          const lookup =
+            applied.groupBy === 'restaurant'
+              ? await searchPlatformRestaurants({ page: 1, pageSize: 100 }, signal)
+              : await searchPlatformOrganizations({ page: 1, pageSize: 100 }, signal)
+          if (signal?.aborted) return
+          const next: Record<string, string> = {}
+          for (const row of lookup.items ?? []) {
+            next[row.id] = entityLabel(row)
+          }
+          setNameMap(next)
+        } else {
+          setNameMap({})
+        }
       } catch (err) {
         if (signal?.aborted) return
         setError(isApiError(err) ? err.message : p.errorLoad)
@@ -150,23 +175,43 @@ export function PlatformRevenuePage() {
           fromLabel={p.from}
           toLabel={p.to}
           extra={
-            <Select
-              label={p.groupBy}
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value as RevenueGroupBy)}
-              className="min-w-[160px]"
-            >
-              {GROUP_BY_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {groupLabel[opt]}
-                </option>
-              ))}
-            </Select>
+            <>
+              <Select
+                label={p.groupBy}
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as RevenueGroupBy)}
+                className="min-w-[160px]"
+              >
+                {GROUP_BY_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {groupLabel[opt]}
+                  </option>
+                ))}
+              </Select>
+              <RestaurantPicker
+                selected={restaurant}
+                onSelect={setRestaurant}
+                label={p.restaurant}
+              />
+              <OrganizationPicker
+                selected={organization}
+                onSelect={setOrganization}
+                label={p.organization}
+              />
+            </>
           }
           actions={
             <Button
               variant="secondary"
-              onClick={() => setApplied({ from, to, groupBy })}
+              onClick={() =>
+                setApplied({
+                  from,
+                  to,
+                  groupBy,
+                  restaurantId: restaurant?.id,
+                  organizationId: organization?.id,
+                })
+              }
               loading={loading}
             >
               {p.apply}
@@ -191,7 +236,9 @@ export function PlatformRevenuePage() {
         <DataTableBody>
           {buckets.map((bucket) => (
             <DataTableRow key={`${bucket.key}-${bucket.currency ?? ''}`}>
-              <DataTableCell className="font-medium">{bucket.key}</DataTableCell>
+              <DataTableCell className="font-medium">
+                {nameMap[bucket.key] ?? bucket.key}
+              </DataTableCell>
               <DataTableCell>{bucket.currency ?? '—'}</DataTableCell>
               <DataTableCell numeric>
                 <Num>{bucket.recordedCount ?? '—'}</Num>

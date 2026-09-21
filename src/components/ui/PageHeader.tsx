@@ -11,6 +11,8 @@ export interface Breadcrumb {
 interface PageHeaderProps {
   title: string
   subtitle?: string
+  /** Leading wayfinding icon shown in a tinted tile. */
+  icon?: string
   actions?: ReactNode
   /** Trail to the parent screen. Omit on top-level pages. */
   breadcrumbs?: Breadcrumb[]
@@ -27,6 +29,7 @@ interface PageHeaderProps {
 export function PageHeader({
   title,
   subtitle,
+  icon,
   actions,
   breadcrumbs,
   meta,
@@ -64,15 +67,24 @@ export function PageHeader({
 
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-headline-lg text-on-surface">{title}</h1>
-            {meta}
+          <div className="flex items-start gap-3">
+            {icon && (
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-subtle text-primary ring-1 ring-primary-border/70">
+                <MaterialIcon name={icon} size={22} />
+              </span>
+            )}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-headline-lg text-on-surface">{title}</h1>
+                {meta}
+              </div>
+              {subtitle && (
+                <p className="text-body-md text-on-surface-variant mt-1.5 max-w-2xl leading-relaxed">
+                  {subtitle}
+                </p>
+              )}
+            </div>
           </div>
-          {subtitle && (
-            <p className="text-body-md text-on-surface-variant mt-1.5 max-w-2xl leading-relaxed">
-              {subtitle}
-            </p>
-          )}
         </div>
 
         {actions && (

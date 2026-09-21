@@ -5,12 +5,14 @@ import { cn } from '@/lib/utils'
 export function Num({
   children,
   className,
+  title,
 }: {
   children: ReactNode
   className?: string
+  title?: string
 }) {
   return (
-    <span dir="ltr" lang="en" className={cn('inline-block tabular-nums', className)}>
+    <span dir="ltr" lang="en" title={title} className={cn('inline-block tabular-nums', className)}>
       {children}
     </span>
   )

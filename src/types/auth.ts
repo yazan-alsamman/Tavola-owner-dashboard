@@ -12,7 +12,7 @@ export type ActorType =
   | 'PlatformSupport'
 
 export function isPlatformActor(
-  actorType: ActorType | null | undefined,
+  actorType: string | null | undefined,
 ): actorType is 'PlatformAdmin' | 'PlatformSupport' {
   return actorType === 'PlatformAdmin' || actorType === 'PlatformSupport'
 }

@@ -4,7 +4,6 @@ import {
   listPlatformAcquisitions,
   recordPlatformAcquisitionManual,
   reversePlatformAcquisition,
-  searchPlatformRestaurants,
   type PlatformRestaurantLookupDto,
 } from '@/platform/api/platformAdmin'
 import { isApiError } from '@/api/errors'
@@ -26,14 +25,14 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { RestaurantPicker } from '@/platform/ui/EntitySearchPicker'
 import { formatPlatformDateTime } from '@/platform/ui/dates'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
 import { asRecord, pickRaw } from '@/platform/ui/recordFields'
-import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
+import { platformRowAccent } from '@/platform/ui/statusTone'
 
 const PAGE_SIZE = 20
 
@@ -43,9 +42,6 @@ export function PlatformAcquisitionsPage() {
   const { canQuery, canMutate } = usePlatformAccess()
   const p = t.platform.acquisitions
 
-  const [pickerQ, setPickerQ] = useState('')
-  const debouncedPicker = useDebouncedValue(pickerQ, 300)
-  const [matches, setMatches] = useState<PlatformRestaurantLookupDto[]>([])
   const [selected, setSelected] = useState<PlatformRestaurantLookupDto | null>(null)
   const [items, setItems] = useState<Record<string, unknown>[]>([])
   const [total, setTotal] = useState(0)
@@ -63,22 +59,6 @@ export function PlatformAcquisitionsPage() {
   const [reverseId, setReverseId] = useState<string | null>(null)
   const [reverseReason, setReverseReason] = useState('')
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!canQuery || debouncedPicker.trim().length < 1) {
-      setMatches([])
-      return
-    }
-    const ac = new AbortController()
-    void searchPlatformRestaurants({ q: debouncedPicker.trim(), page: 1, pageSize: 8 }, ac.signal)
-      .then((result) => {
-        if (!ac.signal.aborted) setMatches(result.items ?? [])
-      })
-      .catch(() => {
-        if (!ac.signal.aborted) setMatches([])
-      })
-    return () => ac.abort()
-  }, [canQuery, debouncedPicker])
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -199,57 +179,19 @@ export function PlatformAcquisitionsPage() {
         filters={
           <div className="space-y-4">
             <FilterBar
-              actions={
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!selected}
-                  onClick={() => {
-                    setPage(1)
-                    void load()
-                  }}
-                >
-                  {p.load}
-                </Button>
-              }
+              summary={selected ? selected.name ?? selected.slug : undefined}
             >
-              <div className="relative min-w-[240px] flex-1">
-                <Input
-                  label={p.restaurant}
-                  value={selected ? (selected.name ?? selected.id) : pickerQ}
-                  onChange={(e) => {
-                    setSelected(null)
-                    setPickerQ(e.target.value)
-                    setSearched(false)
-                    setItems([])
-                  }}
-                  placeholder={p.restaurantPlaceholder}
-                  icon={<MaterialIcon name="search" size={18} />}
-                />
-                {!selected && matches.length > 0 && (
-                  <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-outline-variant/60 bg-surface-container-lowest elev-2">
-                    {matches.map((row) => (
-                      <li key={row.id}>
-                        <button
-                          type="button"
-                          className="w-full px-3 py-2 text-start text-body-sm hover:bg-surface-container-high"
-                          onClick={() => {
-                            setSelected(row)
-                            setPickerQ('')
-                            setMatches([])
-                            setPage(1)
-                          }}
-                        >
-                          <span className="font-medium">{row.name ?? row.slug ?? row.id}</span>
-                          {row.slug && (
-                            <span className="ms-2 text-on-surface-variant">{row.slug}</span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <RestaurantPicker
+                selected={selected}
+                onSelect={(row) => {
+                  setSelected(row)
+                  setSearched(false)
+                  setItems([])
+                  setPage(1)
+                }}
+                disabled={!canQuery}
+                label={p.restaurant}
+              />
             </FilterBar>
 
             <FilterBar
@@ -323,11 +265,10 @@ export function PlatformAcquisitionsPage() {
 
           <DataTable>
             <DataTableHead>
-              <DataTableHeader>{p.colId}</DataTableHeader>
+              <DataTableHeader>{p.colCreated}</DataTableHeader>
               <DataTableHeader>{p.colStatus}</DataTableHeader>
               <DataTableHeader>{p.colCurrency}</DataTableHeader>
               <DataTableHeader numeric>{p.colAmount}</DataTableHeader>
-              <DataTableHeader>{p.colCreated}</DataTableHeader>
               <DataTableHeader>{p.colSource}</DataTableHeader>
               <DataTableHeader>{p.colActions}</DataTableHeader>
             </DataTableHead>
@@ -338,9 +279,12 @@ export function PlatformAcquisitionsPage() {
                 const amount = pickRaw(row, ['recordedTotal', 'amount', 'feeAmount', 'total'])
                 const status = String(pickRaw(row, ['status']) ?? '')
                 return (
-                  <DataTableRow key={id}>
-                    <DataTableCell>
-                      <CopyId value={id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
+                  <DataTableRow key={id} accent={platformRowAccent(status)}>
+                    <DataTableCell className="font-medium">
+                      {formatPlatformDateTime(
+                        String(pickRaw(row, ['createdAt', 'recordedAt', 'timestamp']) ?? ''),
+                        locale,
+                      )}
                     </DataTableCell>
                     <DataTableCell>
                       <PlatformStatusBadge status={status} />
@@ -348,12 +292,6 @@ export function PlatformAcquisitionsPage() {
                     <DataTableCell>{String(pickRaw(row, ['currency']) ?? '—')}</DataTableCell>
                     <DataTableCell numeric>
                       <Num>{amount == null ? '—' : String(amount)}</Num>
-                    </DataTableCell>
-                    <DataTableCell>
-                      {formatPlatformDateTime(
-                        String(pickRaw(row, ['createdAt', 'recordedAt', 'timestamp']) ?? ''),
-                        locale,
-                      )}
                     </DataTableCell>
                     <DataTableCell>
                       {String(pickRaw(row, ['createdVia', 'source', 'origin']) ?? '—')}
@@ -369,6 +307,7 @@ export function PlatformAcquisitionsPage() {
                             setReverseReason('')
                           }}
                         >
+                          <MaterialIcon name="undo" size={14} />
                           {p.reverse}
                         </Button>
                       )}

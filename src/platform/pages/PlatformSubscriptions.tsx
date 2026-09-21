@@ -5,12 +5,11 @@ import {
   getOrganizationSubscription,
   listPlatformPlans,
   reactivateOrganizationSubscription,
-  searchPlatformOrganizations,
   suspendOrganizationSubscription,
   type PlatformOrganizationLookupDto,
 } from '@/platform/api/platformAdmin'
 import { isApiError } from '@/api/errors'
-import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
 import { Card, CardTitle } from '@/components/ui/Card'
@@ -27,12 +26,12 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { OrganizationPicker } from '@/platform/ui/EntitySearchPicker'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
 import { asRecord, pickRaw } from '@/platform/ui/recordFields'
-import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
+import { platformRowAccent } from '@/platform/ui/statusTone'
 
 type SubscriptionAction = 'assign' | 'cancel' | 'suspend' | 'reactivate'
 
@@ -50,9 +49,6 @@ export function PlatformSubscriptionsPage() {
   const { canQuery, canMutate } = usePlatformAccess()
   const p = t.platform.subscriptions
 
-  const [pickerQ, setPickerQ] = useState('')
-  const debouncedPicker = useDebouncedValue(pickerQ, 300)
-  const [matches, setMatches] = useState<PlatformOrganizationLookupDto[]>([])
   const [selected, setSelected] = useState<PlatformOrganizationLookupDto | null>(null)
   const [subscription, setSubscription] = useState<Record<string, unknown> | null>(null)
   const [plans, setPlans] = useState<Record<string, unknown>[]>([])
@@ -62,22 +58,6 @@ export function PlatformSubscriptionsPage() {
   const [searched, setSearched] = useState(false)
   const [pending, setPending] = useState<SubscriptionAction | null>(null)
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (!canQuery || debouncedPicker.trim().length < 1) {
-      setMatches([])
-      return
-    }
-    const ac = new AbortController()
-    void searchPlatformOrganizations({ q: debouncedPicker.trim(), page: 1, pageSize: 8 }, ac.signal)
-      .then((result) => {
-        if (!ac.signal.aborted) setMatches(result.items ?? [])
-      })
-      .catch(() => {
-        if (!ac.signal.aborted) setMatches([])
-      })
-    return () => ac.abort()
-  }, [canQuery, debouncedPicker])
 
   useEffect(() => {
     if (!canQuery) {
@@ -178,54 +158,17 @@ export function PlatformSubscriptionsPage() {
         emptyTitle={searched ? p.emptyTitle : p.promptTitle}
         emptyBody={searched ? p.emptyBody : p.promptBody}
         filters={
-          <FilterBar
-            actions={
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={!selected}
-                onClick={() => void load()}
-              >
-                {p.load}
-              </Button>
-            }
-          >
-            <div className="relative min-w-[240px] flex-1">
-              <Input
-                label={p.organization}
-                value={selected ? (selected.name ?? selected.id) : pickerQ}
-                onChange={(e) => {
-                  setSelected(null)
-                  setPickerQ(e.target.value)
-                  setSearched(false)
-                  setSubscription(null)
-                }}
-                placeholder={p.organizationPlaceholder}
-                icon={<MaterialIcon name="search" size={18} />}
-              />
-              {!selected && matches.length > 0 && (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-outline-variant/60 bg-surface-container-lowest elev-2">
-                  {matches.map((row) => (
-                    <li key={row.id}>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-start text-body-sm hover:bg-surface-container-high"
-                        onClick={() => {
-                          setSelected(row)
-                          setPickerQ('')
-                          setMatches([])
-                        }}
-                      >
-                        <span className="font-medium">{row.name ?? row.slug ?? row.id}</span>
-                        {row.slug && (
-                          <span className="ms-2 text-on-surface-variant">{row.slug}</span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          <FilterBar>
+            <OrganizationPicker
+              selected={selected}
+              onSelect={(row) => {
+                setSelected(row)
+                setSearched(false)
+                setSubscription(null)
+              }}
+              disabled={!canQuery}
+              label={p.organization}
+            />
           </FilterBar>
         }
       >
@@ -235,18 +178,30 @@ export function PlatformSubscriptionsPage() {
               <CardTitle>{p.detailsTitle}</CardTitle>
               <RecordDl record={subscription} />
               <Card className="max-w-xl space-y-4">
-                <Input
-                  label={p.planId}
+                <Select
+                  label={p.plan}
                   hint={p.planHint}
                   value={planId}
                   onChange={(e) => setPlanId(e.target.value)}
                   disabled={!canMutate || busy}
-                />
+                >
+                  <option value="">{p.planPlaceholder}</option>
+                  {plans.map((raw, index) => {
+                    const row = asRecord(raw)
+                    const id = String(pickRaw(row, ['planId', 'id']) ?? index)
+                    return (
+                      <option key={id} value={id}>
+                        {String(pickRaw(row, ['name', 'label']) ?? id)}
+                      </option>
+                    )
+                  })}
+                </Select>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     disabled={!canMutate || busy}
                     onClick={() => setPending('assign')}
                   >
+                    <MaterialIcon name="credit_card" size={16} />
                     {p.assign}
                   </Button>
                   <Button
@@ -254,6 +209,7 @@ export function PlatformSubscriptionsPage() {
                     disabled={!canMutate || busy}
                     onClick={() => setPending('suspend')}
                   >
+                    <MaterialIcon name="pause" size={16} />
                     {p.suspend}
                   </Button>
                   <Button
@@ -261,6 +217,7 @@ export function PlatformSubscriptionsPage() {
                     disabled={!canMutate || busy}
                     onClick={() => setPending('reactivate')}
                   >
+                    <MaterialIcon name="play_arrow" size={16} />
                     {p.reactivate}
                   </Button>
                   <Button
@@ -268,6 +225,7 @@ export function PlatformSubscriptionsPage() {
                     disabled={!canMutate || busy}
                     onClick={() => setPending('cancel')}
                   >
+                    <MaterialIcon name="cancel" size={16} />
                     {p.cancel}
                   </Button>
                 </div>
@@ -282,7 +240,6 @@ export function PlatformSubscriptionsPage() {
             ) : (
               <DataTable>
                 <DataTableHead>
-                  <DataTableHeader>{p.colPlanId}</DataTableHeader>
                   <DataTableHeader>{p.colName}</DataTableHeader>
                   <DataTableHeader>{p.colSlug}</DataTableHeader>
                   <DataTableHeader>{p.colStatus}</DataTableHeader>
@@ -291,17 +248,15 @@ export function PlatformSubscriptionsPage() {
                   {plans.map((raw, index) => {
                     const row = asRecord(raw)
                     const id = String(pickRaw(row, ['planId', 'id']) ?? index)
+                    const status = String(pickRaw(row, ['status']) ?? '')
                     return (
-                      <DataTableRow key={id}>
-                        <DataTableCell>
-                          <CopyId value={id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
-                        </DataTableCell>
+                      <DataTableRow key={id} accent={platformRowAccent(status)}>
                         <DataTableCell className="font-medium">
                           {String(pickRaw(row, ['name', 'label']) ?? '—')}
                         </DataTableCell>
                         <DataTableCell>{String(pickRaw(row, ['slug']) ?? '—')}</DataTableCell>
                         <DataTableCell>
-                          <PlatformStatusBadge status={String(pickRaw(row, ['status']) ?? '')} />
+                          <PlatformStatusBadge status={status} />
                         </DataTableCell>
                       </DataTableRow>
                     )

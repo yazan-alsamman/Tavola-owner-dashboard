@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ConfirmDialog } from '@/components/ui/Modal'
+import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
@@ -71,7 +72,7 @@ export function PlatformProvisionPage() {
   if (!canQuery) {
     return (
       <div className="space-y-6">
-        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="person_add" />
         <Card padding="none">
           <EmptyState
             icon="lock"
@@ -89,8 +90,11 @@ export function PlatformProvisionPage() {
   if (successEmail) {
     return (
       <div className="space-y-6">
-        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+        <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="person_add" />
         <Card className="max-w-xl space-y-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success-subtle text-on-success-subtle">
+            <MaterialIcon name="check_circle" size={24} />
+          </div>
           <h2 className="text-headline-sm text-on-surface">{p.success}</h2>
           <p className="text-body-md text-on-surface-variant">{p.successNext}</p>
           <p className="text-body-md font-medium text-on-surface">{successEmail}</p>
@@ -107,7 +111,7 @@ export function PlatformProvisionPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="person_add" />
 
       <Card className="max-w-xl">
         <form
@@ -124,6 +128,7 @@ export function PlatformProvisionPage() {
               onChange={(e) => setFirstName(e.target.value)}
               required
               disabled={!canMutate || submitting}
+              icon={<MaterialIcon name="person" size={18} />}
             />
             <Input
               label={p.lastName}
@@ -131,6 +136,7 @@ export function PlatformProvisionPage() {
               onChange={(e) => setLastName(e.target.value)}
               required
               disabled={!canMutate || submitting}
+              icon={<MaterialIcon name="person" size={18} />}
             />
           </div>
           <Input
@@ -140,6 +146,7 @@ export function PlatformProvisionPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={!canMutate || submitting}
+            icon={<MaterialIcon name="mail" size={18} />}
           />
           <Input
             type="password"
@@ -150,6 +157,7 @@ export function PlatformProvisionPage() {
             required
             disabled={!canMutate || submitting}
             autoComplete="new-password"
+            icon={<MaterialIcon name="lock" size={18} />}
           />
           <Input
             label={p.organizationName}
@@ -157,6 +165,7 @@ export function PlatformProvisionPage() {
             onChange={(e) => setOrganizationName(e.target.value)}
             required
             disabled={!canMutate || submitting}
+            icon={<MaterialIcon name="corporate_fare" size={18} />}
           />
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-body-sm text-on-surface">
@@ -190,6 +199,7 @@ export function PlatformProvisionPage() {
             </label>
           </div>
           <Button type="submit" disabled={!canMutate} loading={submitting}>
+            <MaterialIcon name="person_add" size={16} />
             {p.submit}
           </Button>
         </form>

@@ -23,13 +23,26 @@ function formatCount(payload: Record<string, unknown> | undefined, key: string):
   return n === null ? '—' : n.toLocaleString()
 }
 
+function metricSurface(key: string): string {
+  if (['active', 'accepted', 'recorded'].includes(key)) {
+    return 'bg-success-subtle text-on-success-subtle'
+  }
+  if (['suspended', 'queued', 'pending', 'notAttempted'].includes(key)) {
+    return 'bg-warning-subtle text-on-warning-subtle'
+  }
+  if (['deleted', 'failed', 'cancelled', 'expired', 'reversed'].includes(key)) {
+    return 'bg-danger-subtle text-on-danger-subtle'
+  }
+  return 'bg-surface-container-lowest text-on-surface'
+}
+
 function MetricGrid({
   payload,
   items,
   emptyLabel,
 }: {
   payload: Record<string, unknown>
-  items: Array<{ key: string; label: string }>
+  items: Array<{ key: string; label: string; icon?: string }>
   emptyLabel: string
 }) {
   const fields = items
@@ -41,11 +54,14 @@ function MetricGrid({
   }
 
   return (
-    <dl className="mt-4 grid grid-cols-1 gap-px overflow-hidden rounded-lg bg-outline-variant/40 sm:grid-cols-2">
-      {fields.map(({ key, label, value }) => (
-        <div key={key} className="bg-surface-container-lowest px-3.5 py-3">
-          <dt className="text-overline text-on-surface-variant">{label}</dt>
-          <dd className="text-headline-sm text-on-surface mt-1 nums truncate">
+    <dl className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {fields.map(({ key, label, value, icon }) => (
+        <div key={key} className={`rounded-lg px-3.5 py-3 ${metricSurface(key)}`}>
+          <dt className="flex items-center gap-1.5 text-overline opacity-80">
+            {icon ? <MaterialIcon name={icon} size={13} /> : null}
+            {label}
+          </dt>
+          <dd className="text-headline-sm mt-1 nums truncate">
             <Num>{value}</Num>
           </dd>
         </div>
@@ -172,7 +188,7 @@ export function PlatformOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} />
+      <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="dashboard" />
 
       <DateRangeFilter
         from={from}
@@ -266,12 +282,14 @@ export function PlatformOverviewPage() {
               value={formatCount(subscriptions, 'active')}
               subtitle={`${formatCount(subscriptions, 'total')} ${p.kpiTotal}`}
               icon="credit_card"
+              variant="success"
             />
             <StatCard
               title={p.messaging}
               value={formatCount(messaging, 'total')}
               subtitle={`${formatCount(messaging, 'failed')} ${p.kpiFailed}`}
               icon="forum"
+              variant={formatCount(messaging, 'failed') === '—' || formatCount(messaging, 'failed') === '0' ? 'default' : 'danger'}
             />
           </div>
 
@@ -287,10 +305,10 @@ export function PlatformOverviewPage() {
                 payload={restaurants}
                 emptyLabel={p.sectionEmpty}
                 items={[
-                  { key: 'total', label: p.metricTotal },
-                  { key: 'active', label: p.metricActive },
-                  { key: 'suspended', label: p.metricSuspended },
-                  { key: 'deleted', label: p.metricDeleted },
+                  { key: 'total', label: p.metricTotal, icon: 'restaurant' },
+                  { key: 'active', label: p.metricActive, icon: 'check_circle' },
+                  { key: 'suspended', label: p.metricSuspended, icon: 'pause_circle' },
+                  { key: 'deleted', label: p.metricDeleted, icon: 'cancel' },
                 ]}
               />
             </Card>
@@ -305,10 +323,10 @@ export function PlatformOverviewPage() {
                 payload={organizations}
                 emptyLabel={p.sectionEmpty}
                 items={[
-                  { key: 'total', label: p.metricTotal },
-                  { key: 'active', label: p.metricActive },
-                  { key: 'suspended', label: p.metricSuspended },
-                  { key: 'deleted', label: p.metricDeleted },
+                  { key: 'total', label: p.metricTotal, icon: 'corporate_fare' },
+                  { key: 'active', label: p.metricActive, icon: 'check_circle' },
+                  { key: 'suspended', label: p.metricSuspended, icon: 'pause_circle' },
+                  { key: 'deleted', label: p.metricDeleted, icon: 'cancel' },
                 ]}
               />
             </Card>
@@ -323,11 +341,11 @@ export function PlatformOverviewPage() {
                 payload={subscriptions}
                 emptyLabel={p.sectionEmpty}
                 items={[
-                  { key: 'total', label: p.metricTotal },
-                  { key: 'active', label: p.metricActive },
-                  { key: 'suspended', label: p.metricSuspended },
-                  { key: 'cancelled', label: p.metricCancelled },
-                  { key: 'expired', label: p.metricExpired },
+                  { key: 'total', label: p.metricTotal, icon: 'credit_card' },
+                  { key: 'active', label: p.metricActive, icon: 'check_circle' },
+                  { key: 'suspended', label: p.metricSuspended, icon: 'pause_circle' },
+                  { key: 'cancelled', label: p.metricCancelled, icon: 'block' },
+                  { key: 'expired', label: p.metricExpired, icon: 'event_busy' },
                 ]}
               />
             </Card>
@@ -342,11 +360,11 @@ export function PlatformOverviewPage() {
                 payload={messaging}
                 emptyLabel={p.sectionEmpty}
                 items={[
-                  { key: 'total', label: p.metricTotal },
-                  { key: 'notAttempted', label: p.metricNotAttempted },
-                  { key: 'queued', label: p.metricQueued },
-                  { key: 'accepted', label: p.metricAccepted },
-                  { key: 'failed', label: p.metricFailed },
+                  { key: 'total', label: p.metricTotal, icon: 'forum' },
+                  { key: 'notAttempted', label: p.metricNotAttempted, icon: 'hourglass_empty' },
+                  { key: 'queued', label: p.metricQueued, icon: 'schedule' },
+                  { key: 'accepted', label: p.metricAccepted, icon: 'check_circle' },
+                  { key: 'failed', label: p.metricFailed, icon: 'cancel' },
                 ]}
               />
             </Card>

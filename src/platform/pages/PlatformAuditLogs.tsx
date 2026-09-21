@@ -13,12 +13,13 @@ import {
 } from '@/components/ui/DataTable'
 import { useLocale } from '@/context/LocaleContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { OrganizationPicker } from '@/platform/ui/EntitySearchPicker'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
 import { formatPlatformDateTime, isoDaysAgo, todayIso } from '@/platform/ui/dates'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { asRecord, pickRaw } from '@/platform/ui/recordFields'
+import type { PlatformOrganizationLookupDto } from '@/platform/api/platformAdmin'
 
 const PAGE_SIZE = 20
 
@@ -30,7 +31,7 @@ export function PlatformAuditLogsPage() {
   const [from, setFrom] = useState(() => isoDaysAgo(7))
   const [to, setTo] = useState(() => todayIso())
   const [action, setAction] = useState('')
-  const [organizationId, setOrganizationId] = useState('')
+  const [organization, setOrganization] = useState<PlatformOrganizationLookupDto | null>(null)
   const [applied, setApplied] = useState(() => ({
     from: isoDaysAgo(7),
     to: todayIso(),
@@ -116,10 +117,10 @@ export function PlatformAuditLogsPage() {
                 onChange={(e) => setAction(e.target.value)}
                 placeholder={p.actionPlaceholder}
               />
-              <Input
-                label={p.organizationId}
-                value={organizationId}
-                onChange={(e) => setOrganizationId(e.target.value)}
+              <OrganizationPicker
+                selected={organization}
+                onSelect={setOrganization}
+                label={p.organization}
               />
             </>
           }
@@ -132,7 +133,7 @@ export function PlatformAuditLogsPage() {
                   from,
                   to,
                   action: action.trim(),
-                  organizationId: organizationId.trim(),
+                  organizationId: organization?.id ?? '',
                 })
               }}
             >
@@ -154,12 +155,15 @@ export function PlatformAuditLogsPage() {
           {items.map((raw, index) => {
             const row = asRecord(raw)
             const id = String(pickRaw(row, ['id']) ?? index)
-            const targetType = pickRaw(row, ['targetType'])
-            const targetId = pickRaw(row, ['targetId'])
-            const target =
-              targetType || targetId
-                ? [targetType, targetId].filter(Boolean).join(' · ')
-                : '—'
+            const actor = String(pickRaw(row, ['actorEmail', 'actorName', 'actor']) ?? '')
+            const orgName = String(
+              pickRaw(row, ['organizationName', 'organization', 'orgName']) ?? '',
+            )
+            const targetType = String(pickRaw(row, ['targetType']) ?? '')
+            const targetName = String(
+              pickRaw(row, ['targetName', 'restaurantName']) ?? '',
+            )
+            const target = targetName || targetType || '—'
             return (
               <DataTableRow key={id}>
                 <DataTableCell>
@@ -171,21 +175,9 @@ export function PlatformAuditLogsPage() {
                 <DataTableCell className="font-medium">
                   {String(pickRaw(row, ['action']) ?? '—')}
                 </DataTableCell>
-                <DataTableCell>
-                  <CopyId
-                    value={String(pickRaw(row, ['actorId', 'actor']) ?? '')}
-                    copyLabel={t.common.copy}
-                    copiedLabel={t.common.copied}
-                  />
-                </DataTableCell>
-                <DataTableCell>
-                  <CopyId
-                    value={String(pickRaw(row, ['organizationId']) ?? '')}
-                    copyLabel={t.common.copy}
-                    copiedLabel={t.common.copied}
-                  />
-                </DataTableCell>
-                <DataTableCell className="max-w-[240px] truncate" title={target}>
+                <DataTableCell>{actor || '—'}</DataTableCell>
+                <DataTableCell>{orgName || '—'}</DataTableCell>
+                <DataTableCell className="max-w-[240px] truncate">
                   {target}
                 </DataTableCell>
               </DataTableRow>

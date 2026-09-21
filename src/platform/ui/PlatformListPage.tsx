@@ -45,7 +45,13 @@ export function PlatformListPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader className="mb-0" title={title} subtitle={subtitle} actions={headerActions} />
+      <PageHeader
+        className="mb-0"
+        title={title}
+        subtitle={subtitle}
+        icon={emptyIcon}
+        actions={headerActions}
+      />
 
       {!canQuery ? (
         <Card padding="none">

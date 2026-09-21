@@ -3,7 +3,6 @@ import {
   disablePlatformAccountLogin,
   enablePlatformAccountLogin,
   forceLogoutPlatformAccount,
-  getPlatformAccount,
   resetPlatformAccountCredentials,
   searchPlatformAccounts,
   type PlatformUserAccountDto,
@@ -25,11 +24,12 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { EntityName } from '@/platform/ui/EntityName'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
+import { platformRowAccent } from '@/platform/ui/statusTone'
 import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
 
 const PAGE_SIZE = 20
@@ -59,8 +59,6 @@ export function PlatformAccountsPage() {
   const [showReset, setShowReset] = useState(false)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<AccountAction | null>(null)
-  const [lookupId, setLookupId] = useState('')
-  const [lookupBusy, setLookupBusy] = useState(false)
 
   useEffect(() => {
     setSearchQ(debouncedQ.trim())
@@ -144,26 +142,6 @@ export function PlatformAccountsPage() {
     }
   }
 
-  const runLookup = async (): Promise<void> => {
-    const id = lookupId.trim()
-    if (!id) return
-    setLookupBusy(true)
-    try {
-      const result = await getPlatformAccount(id)
-      setDetail(result)
-      setSelected(result)
-      setItems((current) => {
-        const next = current.filter((row) => row.id !== result.id)
-        return [result, ...next]
-      })
-      setTotal((current) => Math.max(current, 1))
-    } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.lookupError)
-    } finally {
-      setLookupBusy(false)
-    }
-  }
-
   const displayName = (row: PlatformUserAccountDto): string => {
     const name = [row.firstName, row.lastName].filter(Boolean).join(' ').trim()
     return name || row.email || '—'
@@ -242,28 +220,6 @@ export function PlatformAccountsPage() {
                 </Select>
               </div>
             </FilterBar>
-
-            <FilterBar
-              actions={
-                <Button
-                  type="button"
-                  variant="secondary"
-                  loading={lookupBusy}
-                  onClick={() => void runLookup()}
-                >
-                  {p.lookup}
-                </Button>
-              }
-            >
-              <div className="min-w-[240px] flex-1">
-                <Input
-                  label={p.lookupId}
-                  value={lookupId}
-                  onChange={(e) => setLookupId(e.target.value)}
-                  placeholder={p.accountHint}
-                />
-              </div>
-            </FilterBar>
           </div>
         }
       >
@@ -273,20 +229,23 @@ export function PlatformAccountsPage() {
             <DataTableHeader>{p.colEmail}</DataTableHeader>
             <DataTableHeader>{p.colType}</DataTableHeader>
             <DataTableHeader>{p.colStatus}</DataTableHeader>
-            <DataTableHeader>{p.colId}</DataTableHeader>
             <DataTableHeader>{p.colActions}</DataTableHeader>
           </DataTableHead>
           <DataTableBody>
             {items.map((row) => (
-              <DataTableRow key={row.id}>
-                <DataTableCell className="font-medium">{displayName(row)}</DataTableCell>
+              <DataTableRow key={row.id} accent={platformRowAccent(row.status, row.deletedAt)}>
+                <DataTableCell>
+                  <EntityName
+                    name={displayName(row)}
+                    secondary={row.email}
+                    icon="person"
+                    status={row.status}
+                  />
+                </DataTableCell>
                 <DataTableCell>{row.email ?? '—'}</DataTableCell>
                 <DataTableCell>{row.accountType ?? '—'}</DataTableCell>
                 <DataTableCell>
                   <PlatformStatusBadge status={row.status} deletedAt={row.deletedAt} />
-                </DataTableCell>
-                <DataTableCell>
-                  <CopyId value={row.id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
                 </DataTableCell>
                 <DataTableCell>
                   <div className="flex flex-wrap gap-1">

@@ -1,6 +1,11 @@
 import { Badge } from '@/components/ui/Badge'
+import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
-import { platformStatusLabelKey, platformStatusTone } from '@/platform/ui/statusTone'
+import {
+  platformStatusIcon,
+  platformStatusLabelKey,
+  platformStatusTone,
+} from '@/platform/ui/statusTone'
 
 export function PlatformStatusBadge({
   status,
@@ -12,7 +17,8 @@ export function PlatformStatusBadge({
   const { t } = useLocale()
   const key = platformStatusLabelKey(status ?? undefined, deletedAt)
   return (
-    <Badge tone={platformStatusTone(status ?? undefined, deletedAt)} dot>
+    <Badge tone={platformStatusTone(status ?? undefined, deletedAt)}>
+      <MaterialIcon name={platformStatusIcon(key)} size={13} />
       {t.platform.status[key]}
     </Badge>
   )

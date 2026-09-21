@@ -54,7 +54,10 @@ function usePlatformNavGroups(): { label: string; items: PlatformNavItem[] }[] {
   ]
 }
 
-function useCurrentPageLabel(groups: { items: PlatformNavItem[] }[]): string {
+function useCurrentPage(groups: { items: PlatformNavItem[] }[]): {
+  label: string
+  icon: string
+} {
   const { pathname } = useLocation()
   const { t } = useLocale()
   const items = groups.flatMap((group) => group.items)
@@ -63,7 +66,10 @@ function useCurrentPageLabel(groups: { items: PlatformNavItem[] }[]): string {
       item.end ? pathname === item.path : pathname === item.path || pathname.startsWith(`${item.path}/`),
     )
     .sort((a, b) => b.path.length - a.path.length)[0]
-  return match?.label ?? t.platform.nav.dashboard
+  return {
+    label: match?.label ?? t.platform.nav.dashboard,
+    icon: match?.icon ?? 'dashboard',
+  }
 }
 
 export function PlatformLayout() {
@@ -72,7 +78,7 @@ export function PlatformLayout() {
   const { isOpen, isCollapsed, close, toggle, toggleCollapse } = useSidebar()
   const { user, logout } = useAuth()
   const groups = usePlatformNavGroups()
-  const pageLabel = useCurrentPageLabel(groups)
+  const page = useCurrentPage(groups)
   const sidebarContext = user?.email ?? user?.displayName ?? t.platform.preview.guestLabel
 
   return (
@@ -171,8 +177,11 @@ export function PlatformLayout() {
                   className="rtl:rotate-180"
                 />
               </Button>
+              <span className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary lg:flex">
+                <MaterialIcon name={page.icon} size={16} />
+              </span>
               <span className="truncate text-headline-md font-semibold text-on-surface">
-                {pageLabel}
+                {page.label}
               </span>
             </div>
 

@@ -7,6 +7,7 @@ import {
   restorePlatformRestaurant,
   searchPlatformRestaurants,
   suspendPlatformRestaurant,
+  type PlatformOrganizationLookupDto,
   type PlatformRestaurantLookupDto,
   type PlatformRestaurantStatus,
 } from '@/platform/api/platformAdmin'
@@ -27,18 +28,23 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { EntityName } from '@/platform/ui/EntityName'
+import { OrganizationPicker, organizationNameFromRestaurant } from '@/platform/ui/EntitySearchPicker'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
-import { lifecycleActionsFor, type LifecycleAction } from '@/platform/ui/statusTone'
+import {
+  lifecycleActionIcon,
+  lifecycleActionsFor,
+  platformRowAccent,
+  type LifecycleAction,
+} from '@/platform/ui/statusTone'
 import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
 
 const PAGE_SIZE = 20
 
 const emptyCreateForm = {
-  organizationId: '',
   name: '',
   slug: '',
   description: '',
@@ -67,6 +73,7 @@ export function PlatformRestaurantsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState(emptyCreateForm)
+  const [createOrg, setCreateOrg] = useState<PlatformOrganizationLookupDto | null>(null)
   const [detail, setDetail] = useState<PlatformRestaurantLookupDto | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
 
@@ -157,7 +164,7 @@ export function PlatformRestaurantsPage() {
 
   const handleCreate = async (): Promise<void> => {
     if (!canMutate) return
-    const organizationId = createForm.organizationId.trim()
+    const organizationId = createOrg?.id ?? ''
     const name = createForm.name.trim()
     const slug = createForm.slug.trim()
     if (!organizationId || !name || !slug) {
@@ -185,6 +192,7 @@ export function PlatformRestaurantsPage() {
       })
       toast('success', p.createSuccess)
       setCreateForm(emptyCreateForm)
+      setCreateOrg(null)
       setCreateOpen(false)
       await load()
     } catch (err) {
@@ -268,15 +276,20 @@ export function PlatformRestaurantsPage() {
           </DataTableHead>
           <DataTableBody>
             {items.map((row) => (
-              <DataTableRow key={row.id}>
-                <DataTableCell className="font-medium">{row.name ?? '—'}</DataTableCell>
+              <DataTableRow key={row.id} accent={platformRowAccent(row.status, row.deletedAt)}>
+                <DataTableCell>
+                  <EntityName
+                    name={row.name ?? '—'}
+                    secondary={row.slug}
+                    icon="restaurant"
+                    status={row.status}
+                  />
+                </DataTableCell>
                 <DataTableCell>{row.slug ?? '—'}</DataTableCell>
                 <DataTableCell>
                   <PlatformStatusBadge status={row.status} deletedAt={row.deletedAt} />
                 </DataTableCell>
-                <DataTableCell>
-                  <CopyId value={row.organizationId} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
-                </DataTableCell>
+                <DataTableCell>{organizationNameFromRestaurant(row)}</DataTableCell>
                 <DataTableCell>
                   <div className="flex flex-wrap gap-1">
                     <Button
@@ -285,6 +298,7 @@ export function PlatformRestaurantsPage() {
                       disabled={detailBusy}
                       onClick={() => void openDetail(row.id)}
                     >
+                      <MaterialIcon name="visibility" size={14} />
                       {p.view}
                     </Button>
                     {lifecycleActionsFor(row.status, row.deletedAt).map((action) => (
@@ -295,6 +309,7 @@ export function PlatformRestaurantsPage() {
                         disabled={!canMutate || busy}
                         onClick={() => setPending({ id: row.id, action })}
                       >
+                        <MaterialIcon name={lifecycleActionIcon[action]} size={14} />
                         {p[action]}
                       </Button>
                     ))}
@@ -335,7 +350,10 @@ export function PlatformRestaurantsPage() {
       <Modal
         open={createOpen}
         onClose={() => {
-          if (!creating) setCreateOpen(false)
+          if (!creating) {
+            setCreateOpen(false)
+            setCreateOrg(null)
+          }
         }}
         title={p.createTitle}
         description={p.createHint}
@@ -351,13 +369,13 @@ export function PlatformRestaurantsPage() {
         }
       >
         <div className="space-y-4">
-          <Input
-            label={p.organizationId}
-            hint={p.organizationIdHint}
-            value={createForm.organizationId}
-            onChange={(e) => setCreateForm((f) => ({ ...f, organizationId: e.target.value }))}
+          <OrganizationPicker
+            selected={createOrg}
+            onSelect={setCreateOrg}
             required
             disabled={creating}
+            label={p.organization}
+            hint={p.organizationHint}
           />
           <Input
             label={p.fieldName}
