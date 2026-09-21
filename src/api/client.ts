@@ -163,6 +163,19 @@ function toNetworkApiError(status: number, fallbackMessage: string): ApiError {
   })
 }
 
+/** Proxy/DNS/timeout — the platform API envelope never arrived. */
+function toUpstreamUnavailable(status: number): ApiError {
+  return new ApiError({
+    message: 'Could not reach the platform API.',
+    status,
+    code: 'UPSTREAM_UNAVAILABLE',
+  })
+}
+
+function isTransportFailure(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'UPSTREAM_UNAVAILABLE'
+}
+
 async function parseJsonBody(response: Response): Promise<unknown> {
   const text = await response.text()
   if (text.trim() === '') {
@@ -233,8 +246,25 @@ async function parseEnvelopeResponse<T>(
 
   const parsed: unknown = await parseJsonBody(response)
 
+  if (response.status === 202) {
+    if (!isRecord(parsed)) {
+      return { data: undefined as T, meta: {}, message: '' }
+    }
+    if (parsed.success === false) {
+      throw toApiErrorFromEnvelope(response.status, parsed)
+    }
+    return {
+      data: (parsed.data as T) ?? (parsed as T),
+      meta: isRecord(parsed.meta) ? parsed.meta : {},
+      message: typeof parsed.message === 'string' ? parsed.message : '',
+    }
+  }
+
   if (!isRecord(parsed)) {
     if (!response.ok) {
+      if (response.status >= 500) {
+        throw toUpstreamUnavailable(response.status)
+      }
       throw toNetworkApiError(
         response.status,
         `Request failed with status ${response.status}.`,
@@ -274,6 +304,24 @@ async function requestWithResult<T>(
     const response = await executeFetch(path, options)
     return await parseEnvelopeResponse<T>(response)
   } catch (error) {
+    const failure =
+      error instanceof ApiError
+        ? error
+        : error instanceof TypeError
+          ? toUpstreamUnavailable(0)
+          : error
+
+    if (
+      isTransportFailure(failure) &&
+      !options.skipTransportRetry &&
+      (options.method ?? 'GET') === 'GET' &&
+      !options.signal?.aborted
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      if (options.signal?.aborted) throw failure
+      return requestWithResult<T>(path, { ...options, skipTransportRetry: true })
+    }
+
     if (
       error instanceof ApiError &&
       error.status === 401 &&
@@ -289,11 +337,11 @@ async function requestWithResult<T>(
       }
     }
 
-    if (error instanceof ApiError && shouldInvalidateSession(error, options)) {
+    if (failure instanceof ApiError && shouldInvalidateSession(failure, options)) {
       tokenStore.clear()
       tokenStore.notifySessionInvalidated()
     }
-    throw error
+    throw failure
   }
 }
 

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { provisionRestaurantOwner } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
+import { generateSecurePassword, copyText } from '@/lib/platformCredentials'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -11,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/Modal'
 import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
+import { GeneratedSecretField } from '@/platform/ui/GeneratedSecretField'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
 
 export function PlatformProvisionPage() {
@@ -30,7 +32,7 @@ export function PlatformProvisionPage() {
   const [marketing, setMarketing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [successEmail, setSuccessEmail] = useState<string | null>(null)
+  const [success, setSuccess] = useState<{ email: string; password: string } | null>(null)
 
   const resetForm = (): void => {
     setEmail('')
@@ -58,12 +60,14 @@ export function PlatformProvisionPage() {
           marketing,
         },
       })
-      setSuccessEmail(email.trim())
+      const createdEmail = email.trim()
+      const createdPassword = password
+      setSuccess({ email: createdEmail, password: createdPassword })
       toast('success', p.success)
       resetForm()
       setConfirmOpen(false)
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.error)
+      toast('error', userFacingApiError(err, t, p.error))
     } finally {
       setSubmitting(false)
     }
@@ -87,7 +91,7 @@ export function PlatformProvisionPage() {
     )
   }
 
-  if (successEmail) {
+  if (success) {
     return (
       <div className="space-y-6">
         <PageHeader className="mb-0" title={p.title} subtitle={p.subtitle} icon="person_add" />
@@ -97,13 +101,28 @@ export function PlatformProvisionPage() {
           </div>
           <h2 className="text-headline-sm text-on-surface">{p.success}</h2>
           <p className="text-body-md text-on-surface-variant">{p.successNext}</p>
-          <p className="text-body-md font-medium text-on-surface">{successEmail}</p>
-          <Button
-            onClick={() => setSuccessEmail(null)}
-            disabled={!canMutate}
-          >
-            {p.provisionAnother}
-          </Button>
+          <p className="text-body-sm text-on-surface-variant">{p.subtitle}</p>
+          <p className="text-label-md text-on-surface-variant">{p.loginEmail}</p>
+          <p className="text-body-md font-medium text-on-surface">{success.email}</p>
+          <p className="text-label-md text-on-surface-variant">{p.temporaryPassword}</p>
+          <p className="font-mono text-body-md text-on-surface">{success.password}</p>
+          <p className="text-body-sm text-on-surface-variant">{t.platform.common.credentialsSensitive}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() =>
+                void copyText(`${success.email}\n${success.password}`).then((ok) => {
+                  if (ok) toast('success', t.common.copied)
+                })
+              }
+            >
+              {t.platform.common.copyCredentials}
+            </Button>
+            <Button onClick={() => navigate('/platform/restaurants')}>{p.addRestaurant}</Button>
+            <Button variant="ghost" onClick={() => setSuccess(null)} disabled={!canMutate}>
+              {p.provisionAnother}
+            </Button>
+          </div>
         </Card>
       </div>
     )
@@ -148,16 +167,17 @@ export function PlatformProvisionPage() {
             disabled={!canMutate || submitting}
             icon={<MaterialIcon name="mail" size={18} />}
           />
-          <Input
-            type="password"
+          <GeneratedSecretField
             label={p.password}
             hint={p.passwordHint}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
             disabled={!canMutate || submitting}
-            autoComplete="new-password"
-            icon={<MaterialIcon name="lock" size={18} />}
+            generateLabel={t.platform.common.generatePassword}
+            regenerateLabel={t.platform.common.regenerate}
+            copyLabel={t.common.copy}
+            copiedLabel={t.common.copied}
+            onChange={setPassword}
+            onGenerate={() => setPassword(generateSecurePassword())}
           />
           <Input
             label={p.organizationName}

@@ -10,8 +10,8 @@ import {
   type PlatformOrganizationLookupDto,
   type PlatformOrganizationStatus,
   type PlatformUserAccountDto,
+  accountRecordId,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
@@ -27,19 +27,16 @@ import {
 import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
+import { ActionMenu } from '@/platform/ui/ActionMenu'
 import { EntityName } from '@/platform/ui/EntityName'
 import { AccountPicker } from '@/platform/ui/EntitySearchPicker'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
-import {
-  lifecycleActionIcon,
-  lifecycleActionsFor,
-  platformRowAccent,
-  type LifecycleAction,
-} from '@/platform/ui/statusTone'
+import { lifecycleActionsFor, platformRowAccent, type LifecycleAction } from '@/platform/ui/statusTone'
 import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
 
 const PAGE_SIZE = 20
@@ -99,14 +96,14 @@ export function PlatformOrganizationsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, page, searchQ, status, p.errorLoad],
+    [canQuery, page, searchQ, status, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -134,7 +131,7 @@ export function PlatformOrganizationsPage() {
       setPending(null)
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.actionError)
+      toast('error', userFacingApiError(err, t, p.actionError))
     } finally {
       setBusy(false)
     }
@@ -146,7 +143,7 @@ export function PlatformOrganizationsPage() {
       const result = await getPlatformOrganization(id)
       setDetail(result)
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.detailError)
+      toast('error', userFacingApiError(err, t, p.detailError))
     } finally {
       setDetailBusy(false)
     }
@@ -230,43 +227,39 @@ export function PlatformOrganizationsPage() {
                   <PlatformStatusBadge status={row.status} deletedAt={row.deletedAt} />
                 </DataTableCell>
                 <DataTableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={detailBusy}
-                      onClick={() => void openDetail(row.id)}
-                    >
-                      <MaterialIcon name="visibility" size={14} />
-                      {p.view}
-                    </Button>
-                    {lifecycleActionsFor(row.status, row.deletedAt).map((action) => (
-                      <Button
-                        key={action}
-                        size="sm"
-                        variant={action === 'delete' ? 'danger' : 'outline'}
-                        disabled={!canMutate || busy}
-                        onClick={() => setPending({ id: row.id, action })}
-                      >
-                        <MaterialIcon name={lifecycleActionIcon[action]} size={14} />
-                        {p[action]}
-                      </Button>
-                    ))}
-                    {!row.deletedAt && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canMutate || busy}
-                        onClick={() => {
-                          setTransferId(row.id)
-                          setNewOwner(null)
-                        }}
-                      >
-                        <MaterialIcon name="how_to_reg" size={14} />
-                        {p.transfer}
-                      </Button>
-                    )}
-                  </div>
+                  <ActionMenu
+                    label={c.actions}
+                    disabled={busy || detailBusy}
+                    items={[
+                      {
+                        id: 'view',
+                        label: p.view,
+                        icon: 'visibility',
+                        onClick: () => void openDetail(row.id),
+                      },
+                      ...lifecycleActionsFor(row.status, row.deletedAt).map((action) => ({
+                        id: action,
+                        label: p[action],
+                        danger: action === 'delete',
+                        disabled: !canMutate,
+                        onClick: () => setPending({ id: row.id, action }),
+                      })),
+                      ...(!row.deletedAt
+                        ? [
+                            {
+                              id: 'transfer',
+                              label: p.transfer,
+                              icon: 'how_to_reg',
+                              disabled: !canMutate,
+                              onClick: () => {
+                                setTransferId(row.id)
+                                setNewOwner(null)
+                              },
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
                 </DataTableCell>
               </DataTableRow>
             ))}
@@ -317,20 +310,20 @@ export function PlatformOrganizationsPage() {
               onClick={() => {
                 void (async () => {
                   if (!transferId) return
-                  if (!newOwner?.id) {
+                  if (!accountRecordId(newOwner)) {
                     toast('error', p.transferValidation)
                     return
                   }
                   setBusy(true)
                   try {
                     await transferPlatformOrganizationOwnership(transferId, {
-                      newOwnerUserId: newOwner.id,
+                      newOwnerUserId: accountRecordId(newOwner),
                     })
                     toast('success', p.transferSuccess)
                     setTransferId(null)
                     await load()
                   } catch (err) {
-                    toast('error', isApiError(err) ? err.message : p.transferError)
+                    toast('error', userFacingApiError(err, t, p.transferError))
                   } finally {
                     setBusy(false)
                   }

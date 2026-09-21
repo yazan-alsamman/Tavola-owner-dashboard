@@ -35,7 +35,7 @@ export function PlatformRoute() {
     return <AuthLoadingScreen />
   }
 
-  const isConsoleActor = isAuthenticated && isPlatformActor(user?.actorType)
+  const isConsoleActor = isAuthenticated && isPlatformActor(user?.platformRole ?? user?.actorType)
   if (!isConsoleActor && !isPlatformPreviewEnabled()) {
     return <Navigate to="/platform/login" replace />
   }
@@ -46,7 +46,7 @@ export function PlatformRoute() {
 export function PlatformPreviewBanner() {
   const { t } = useLocale()
   const { isAuthenticated, user } = useAuth()
-  const isConsoleActor = isAuthenticated && isPlatformActor(user?.actorType)
+  const isConsoleActor = isAuthenticated && isPlatformActor(user?.platformRole ?? user?.actorType)
 
   if (isConsoleActor || !isPlatformPreviewEnabled()) return null
 

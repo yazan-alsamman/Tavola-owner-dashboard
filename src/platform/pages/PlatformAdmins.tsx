@@ -2,18 +2,17 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createPlatformAdmin,
   deactivatePlatformAdmin,
-  getPlatformAdmin,
   listPlatformAdmins,
   reactivatePlatformAdmin,
   updatePlatformAdminRole,
   type PlatformAdminAccountDto,
   type PlatformAdminRole,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
+import { generateSecurePassword } from '@/lib/platformCredentials'
 import { Button } from '@/components/ui/Button'
-import { FilterBar } from '@/components/ui/FilterBar'
 import { Card, CardTitle } from '@/components/ui/Card'
-import { ConfirmDialog } from '@/components/ui/Modal'
+import { ConfirmDialog, Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import {
@@ -27,10 +26,12 @@ import {
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { CopyId } from '@/platform/ui/CopyId'
+import { ActionMenu } from '@/platform/ui/ActionMenu'
+import { GeneratedSecretField } from '@/platform/ui/GeneratedSecretField'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
+import { RecordDl } from '@/platform/ui/RecordDl'
 
 const PAGE_SIZE = 20
 
@@ -52,8 +53,7 @@ export function PlatformAdminsPage() {
     role?: PlatformAdminRole
   } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [lookupId, setLookupId] = useState('')
-  const [lookupBusy, setLookupBusy] = useState(false)
+  const [detail, setDetail] = useState<PlatformAdminAccountDto | null>(null)
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -81,14 +81,14 @@ export function PlatformAdminsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, page, p.errorLoad],
+    [canQuery, page, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -108,27 +108,9 @@ export function PlatformAdminsPage() {
       setPending(null)
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : pending.action === 'role' ? p.roleError : p.actionError)
+      toast('error', userFacingApiError(err, t, pending.action === 'role' ? p.roleError : p.actionError))
     } finally {
       setBusy(false)
-    }
-  }
-
-  const runLookup = async (): Promise<void> => {
-    const id = lookupId.trim()
-    if (!id) return
-    setLookupBusy(true)
-    try {
-      const result = await getPlatformAdmin(id)
-      setItems((current) => {
-        const next = current.filter((row) => row.id !== result.id)
-        return [result, ...next]
-      })
-      setTotal((current) => Math.max(current, 1))
-    } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.lookupError)
-    } finally {
-      setLookupBusy(false)
     }
   }
 
@@ -161,7 +143,7 @@ export function PlatformAdminsPage() {
       })
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.createError)
+      toast('error', userFacingApiError(err, t, p.createError))
     } finally {
       setCreating(false)
     }
@@ -187,22 +169,6 @@ export function PlatformAdminsPage() {
         emptyTitle={p.emptyTitle}
         emptyBody={p.emptyBody}
         filters={
-          <div className="space-y-4">
-            <FilterBar
-              actions={
-                <Button type="button" variant="secondary" loading={lookupBusy} onClick={() => void runLookup()}>
-                  {p.lookup}
-                </Button>
-              }
-            >
-              <div className="min-w-[240px] flex-1">
-                <Input
-                  label={p.lookupId}
-                  value={lookupId}
-                  onChange={(e) => setLookupId(e.target.value)}
-                />
-              </div>
-            </FilterBar>
           <Card className="max-w-3xl">
             <CardTitle className="mb-2">{p.createTitle}</CardTitle>
             <p className="mb-4 text-body-sm text-on-surface-variant">
@@ -230,15 +196,20 @@ export function PlatformAdminsPage() {
                   disabled={!canMutate || creating}
                 />
               </div>
-              <Input
-                type="password"
-                label={p.password}
-                hint={p.passwordHint}
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                disabled={!canMutate || creating}
-                minLength={8}
-              />
+              <div className="sm:col-span-2">
+                <GeneratedSecretField
+                  label={p.password}
+                  hint={p.passwordHint}
+                  value={form.password}
+                  disabled={!canMutate || creating}
+                  generateLabel={t.platform.common.generatePassword}
+                  regenerateLabel={t.platform.common.regenerate}
+                  copyLabel={t.common.copy}
+                  copiedLabel={t.common.copied}
+                  onChange={(value) => setForm((f) => ({ ...f, password: value }))}
+                  onGenerate={() => setForm((f) => ({ ...f, password: generateSecurePassword() }))}
+                />
+              </div>
               <Select
                 label={p.role}
                 value={form.role}
@@ -255,7 +226,6 @@ export function PlatformAdminsPage() {
               </div>
             </form>
           </Card>
-          </div>
         }
       >
         <DataTable>
@@ -268,15 +238,13 @@ export function PlatformAdminsPage() {
           </DataTableHead>
           <DataTableBody>
             {items.map((row) => {
+              const adminId = row.id || row.platformAdminId || ''
               const status = (row.status ?? '').toLowerCase()
               const isActive = status === 'active' || status === ''
               return (
-                <DataTableRow key={row.id}>
+                <DataTableRow key={adminId || row.email}>
                   <DataTableCell className="font-medium">
-                    <div className="space-y-1">
-                      <div>{[row.firstName, row.lastName].filter(Boolean).join(' ') || '—'}</div>
-                      <CopyId value={row.id} copyLabel={t.common.copy} copiedLabel={t.common.copied} />
-                    </div>
+                    {[row.firstName, row.lastName].filter(Boolean).join(' ') || row.email || '—'}
                   </DataTableCell>
                   <DataTableCell>{row.email ?? '—'}</DataTableCell>
                   <DataTableCell>
@@ -288,41 +256,43 @@ export function PlatformAdminsPage() {
                     <PlatformStatusBadge status={row.status} />
                   </DataTableCell>
                   <DataTableCell>
-                    <div className="flex flex-wrap gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canMutate || busy}
-                        onClick={() =>
-                          setPending({
-                            id: row.id,
-                            action: 'role',
-                            role: row.role === 'PlatformAdmin' ? 'PlatformSupport' : 'PlatformAdmin',
-                          })
-                        }
-                      >
-                        {p.changeRole}
-                      </Button>
-                    {isActive ? (
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        disabled={!canMutate || busy}
-                        onClick={() => setPending({ id: row.id, action: 'deactivate' })}
-                      >
-                        {p.deactivate}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canMutate || busy}
-                        onClick={() => setPending({ id: row.id, action: 'reactivate' })}
-                      >
-                        {p.reactivate}
-                      </Button>
-                    )}
-                    </div>
+                    <ActionMenu
+                      label={t.platform.common.actions}
+                      disabled={busy}
+                      items={[
+                        {
+                          id: 'view',
+                          label: t.platform.accounts.view,
+                          icon: 'visibility',
+                          onClick: () => setDetail(row),
+                        },
+                        {
+                          id: 'role',
+                          label: p.changeRole,
+                          disabled: !canMutate,
+                          onClick: () =>
+                            setPending({
+                              id: adminId,
+                              action: 'role',
+                              role: row.role === 'PlatformAdmin' ? 'PlatformSupport' : 'PlatformAdmin',
+                            }),
+                        },
+                        isActive
+                          ? {
+                              id: 'deactivate',
+                              label: p.deactivate,
+                              danger: true,
+                              disabled: !canMutate,
+                              onClick: () => setPending({ id: adminId, action: 'deactivate' }),
+                            }
+                          : {
+                              id: 'reactivate',
+                              label: p.reactivate,
+                              disabled: !canMutate,
+                              onClick: () => setPending({ id: adminId, action: 'reactivate' }),
+                            },
+                      ]}
+                    />
                   </DataTableCell>
                 </DataTableRow>
               )
@@ -362,6 +332,10 @@ export function PlatformAdminsPage() {
         busy={busy}
         closeOnConfirm={false}
       />
+
+      <Modal open={detail !== null} onClose={() => setDetail(null)} title={p.title} size="lg">
+        {detail ? <RecordDl record={detail as Record<string, unknown>} /> : null}
+      </Modal>
     </>
   )
 }

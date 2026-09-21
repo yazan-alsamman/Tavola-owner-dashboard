@@ -55,7 +55,7 @@ export function PlatformLoginPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  if (isAuthenticated && isPlatformActor(user?.actorType)) {
+  if (isAuthenticated && isPlatformActor(user?.platformRole ?? user?.actorType)) {
     return <Navigate to="/platform" replace />
   }
 

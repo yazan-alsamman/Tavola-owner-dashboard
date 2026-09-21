@@ -1,5 +1,5 @@
-import type { ActorType, OrgRole } from '@/types/auth'
-import { isOrgRole } from '@/types/auth'
+import type { ActorType, OrgRole, PlatformAdminRole } from '@/types/auth'
+import { isOrgRole, isPlatformAdminRole, isPlatformActor } from '@/types/auth'
 
 /**
  * Advisory claims read from the access JWT payload for UI gating only.
@@ -13,6 +13,8 @@ export interface AccessTokenClaims {
   sub: string | null
   email: string | null
   actorType: ActorType | null
+  /** Isolated platform-admin JWT uses `role`, not `actorType`. */
+  role: PlatformAdminRole | null
   organizationId: string | null
   orgRole: OrgRole | null
   employeeId: string | null
@@ -85,12 +87,17 @@ export function parseAccessTokenClaims(accessToken: string): AccessTokenClaims |
   }
 
   const actorRaw = readString(parsed.actorType)
+  const roleRaw = readString(parsed.role)
   const orgRoleRaw = readString(parsed.orgRole)
+  const role = roleRaw && isPlatformAdminRole(roleRaw) ? roleRaw : null
+  const actorFromRole = role && isPlatformActor(role) ? role : null
 
   return {
     sub: readString(parsed.sub),
     email: readString(parsed.email),
-    actorType: actorRaw && isActorType(actorRaw) ? actorRaw : null,
+    actorType:
+      actorRaw && isActorType(actorRaw) ? actorRaw : actorFromRole,
+    role,
     organizationId: readString(parsed.organizationId),
     orgRole: orgRoleRaw && isOrgRole(orgRoleRaw) ? orgRoleRaw : null,
     employeeId: readString(parsed.employeeId),

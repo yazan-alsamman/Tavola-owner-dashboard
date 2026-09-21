@@ -3,10 +3,11 @@ import {
   broadcastPlatformNotification,
   listPlatformNotifications,
   sendPlatformNotification,
+  accountRecordId,
   type PlatformNotificationBroadcastDto,
   type PlatformUserAccountDto,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -85,14 +86,14 @@ export function PlatformNotificationsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setHistoryError(isApiError(err) ? err.message : p.historyError)
+        setHistoryError(userFacingApiError(err, t, p.historyError))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setHistoryLoading(false)
       }
     },
-    [canQuery, historyStatus, senderType, page, p.historyError],
+    [canQuery, historyStatus, senderType, page, p.historyError, t],
   )
 
   useEffect(() => {
@@ -114,21 +115,21 @@ export function PlatformNotificationsPage() {
       setConfirmOpen(false)
       await loadHistory()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.errorSend)
+      toast('error', userFacingApiError(err, t, p.errorSend))
     } finally {
       setSubmitting(false)
     }
   }
 
   const sendOne = async (): Promise<void> => {
-    if (!targetUser?.id || !oneTitle.trim() || !oneBody.trim()) {
+    if (!accountRecordId(targetUser ?? { id: '' }) || !oneTitle.trim() || !oneBody.trim()) {
       toast('error', p.sendOneValidation)
       return
     }
     setSubmitting(true)
     try {
       await sendPlatformNotification({
-        targetUserId: targetUser.id,
+        targetUserId: accountRecordId(targetUser ?? { id: '' }),
         title: oneTitle.trim(),
         body: oneBody.trim(),
       })
@@ -139,7 +140,7 @@ export function PlatformNotificationsPage() {
       setConfirmOne(false)
       await loadHistory()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.sendOneError)
+      toast('error', userFacingApiError(err, t, p.sendOneError))
     } finally {
       setSubmitting(false)
     }

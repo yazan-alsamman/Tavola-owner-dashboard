@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPlatformDashboard, type PlatformDashboardDto } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -12,10 +12,11 @@ import { StatCard } from '@/components/ui/StatCard'
 import { MaterialIcon } from '@/components/ui/Icon'
 import { Num } from '@/components/ui/Num'
 import { useLocale } from '@/context/LocaleContext'
+import { useToast } from '@/context/ToastContext'
 import { pickNumber } from '@/lib/analyticsPayload'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
-import { formatPlatformDateTime, isoDaysAgo, todayIso } from '@/platform/ui/dates'
+import { formatPlatformDateTime, isoDaysAgo, isWithinMaxPlatformRange, todayIso } from '@/platform/ui/dates'
 import { asRecord } from '@/platform/ui/recordFields'
 
 function formatCount(payload: Record<string, unknown> | undefined, key: string): string {
@@ -130,6 +131,7 @@ function AcquisitionCurrencies({
 
 export function PlatformOverviewPage() {
   const { t, locale } = useLocale()
+  const { toast } = useToast()
   const { canQuery } = usePlatformAccess()
   const navigate = useNavigate()
   const p = t.platform.dashboard
@@ -158,7 +160,7 @@ export function PlatformOverviewPage() {
         if (!signal?.aborted) setData(result)
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setData(null)
       } finally {
         if (!signal?.aborted) {
@@ -167,7 +169,7 @@ export function PlatformOverviewPage() {
         }
       }
     },
-    [applied, canQuery, p.errorLoad],
+    [applied, canQuery, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -177,6 +179,10 @@ export function PlatformOverviewPage() {
   }, [load])
 
   const applyRange = (): void => {
+    if (!isWithinMaxPlatformRange(from, to)) {
+      toast('error', t.platform.common.rangeTooLong)
+      return
+    }
     setApplied({ from, to })
   }
 

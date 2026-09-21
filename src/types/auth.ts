@@ -11,10 +11,18 @@ export type ActorType =
   | 'PlatformAdmin'
   | 'PlatformSupport'
 
+export type PlatformAdminRole = 'PlatformAdmin' | 'PlatformSupport'
+
 export function isPlatformActor(
   actorType: string | null | undefined,
-): actorType is 'PlatformAdmin' | 'PlatformSupport' {
+): actorType is PlatformAdminRole {
   return actorType === 'PlatformAdmin' || actorType === 'PlatformSupport'
+}
+
+export function isPlatformAdminRole(
+  value: string | null | undefined,
+): value is PlatformAdminRole {
+  return value === 'PlatformAdmin' || value === 'PlatformSupport'
 }
 
 export type UserAccountStatus =
@@ -52,6 +60,9 @@ export interface AuthIdentity {
   status: UserAccountStatus | null
   emailVerified: boolean | null
   actorType: ActorType
+  /** Live platform grant from GET /platform-admin/me `role`, else JWT `role`. */
+  platformRole: PlatformAdminRole | null
+  platformAdminId: string | null
   organization: AuthOrganization | null
   sessionId: string | null
   permissionsVersion: number | null

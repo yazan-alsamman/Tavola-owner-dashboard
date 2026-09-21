@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { listPlatformAuditLogs } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
-import { Input } from '@/components/ui/Input'
+import { listPlatformAuditLogs, type PlatformAdminAccountDto } from '@/platform/api/platformAdmin'
+import { userFacingApiError } from '@/lib/platformErrors'
+import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import {
   DataTable,
@@ -12,10 +12,11 @@ import {
   DataTableCell,
 } from '@/components/ui/DataTable'
 import { useLocale } from '@/context/LocaleContext'
+import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { OrganizationPicker } from '@/platform/ui/EntitySearchPicker'
+import { AdminPicker, OrganizationPicker } from '@/platform/ui/EntitySearchPicker'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
-import { formatPlatformDateTime, isoDaysAgo, todayIso } from '@/platform/ui/dates'
+import { formatPlatformDateTime, isoDaysAgo, isWithinMaxPlatformRange, todayIso } from '@/platform/ui/dates'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { asRecord, pickRaw } from '@/platform/ui/recordFields'
@@ -25,6 +26,7 @@ const PAGE_SIZE = 20
 
 export function PlatformAuditLogsPage() {
   const { t, locale } = useLocale()
+  const { toast } = useToast()
   const { canQuery } = usePlatformAccess()
   const p = t.platform.auditLogs
 
@@ -32,11 +34,15 @@ export function PlatformAuditLogsPage() {
   const [to, setTo] = useState(() => todayIso())
   const [action, setAction] = useState('')
   const [organization, setOrganization] = useState<PlatformOrganizationLookupDto | null>(null)
+  const [actor, setActor] = useState<PlatformAdminAccountDto | null>(null)
+  const [targetType, setTargetType] = useState('')
   const [applied, setApplied] = useState(() => ({
     from: isoDaysAgo(7),
     to: todayIso(),
     action: '',
     organizationId: '',
+    actorId: '',
+    targetType: '',
   }))
   const [page, setPage] = useState(1)
   const [items, setItems] = useState<Record<string, unknown>[]>([])
@@ -64,6 +70,8 @@ export function PlatformAuditLogsPage() {
             pageSize: PAGE_SIZE,
             action: applied.action || undefined,
             organizationId: applied.organizationId || undefined,
+            actorId: applied.actorId || undefined,
+            targetType: applied.targetType || undefined,
           },
           signal,
         )
@@ -73,14 +81,14 @@ export function PlatformAuditLogsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [applied, canQuery, page, p.errorLoad],
+    [applied, canQuery, page, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -122,18 +130,35 @@ export function PlatformAuditLogsPage() {
                 onSelect={setOrganization}
                 label={p.organization}
               />
+              <AdminPicker selected={actor} onSelect={setActor} label={p.actor} hint={p.actorHint} />
+              <Select
+                label={p.targetType}
+                value={targetType}
+                onChange={(e) => setTargetType(e.target.value)}
+              >
+                <option value="">{p.targetTypeAll}</option>
+                <option value="Restaurant">{p.targetTypeRestaurant}</option>
+                <option value="Organization">{p.targetTypeOrganization}</option>
+                <option value="Account">{p.targetTypeAccount}</option>
+              </Select>
             </>
           }
           actions={
             <Button
               variant="secondary"
               onClick={() => {
+                if (!isWithinMaxPlatformRange(from, to)) {
+                  toast('error', t.platform.common.rangeTooLong)
+                  return
+                }
                 setPage(1)
                 setApplied({
                   from,
                   to,
                   action: action.trim(),
                   organizationId: organization?.id ?? '',
+                  actorId: actor?.userId || actor?.id || '',
+                  targetType,
                 })
               }}
             >

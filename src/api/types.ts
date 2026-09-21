@@ -86,6 +86,8 @@ export interface ApiRequestOptions {
   auth?: boolean
   /** Internal: skip one refresh retry after a failed authenticated call. */
   skipRefresh?: boolean
+  /** Internal: skip one retry after a proxy/network failure on a GET. */
+  skipTransportRetry?: boolean
   signal?: AbortSignal
 }
 

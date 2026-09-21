@@ -8,7 +8,7 @@ import {
   type PlatformRestaurantLookupDto,
   type PricingScopeType,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Input'
@@ -91,14 +91,14 @@ export function PlatformPricingPage() {
         setPlans(toRows(plansResult))
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setRules([])
         setPlans([])
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, p.errorLoad],
+    [canQuery, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export function PlatformPricingPage() {
       setLabel('')
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.activateError)
+      toast('error', userFacingApiError(err, t, p.activateError))
     } finally {
       setBusy(false)
     }
@@ -167,7 +167,7 @@ export function PlatformPricingPage() {
       toast('success', p.simulateSuccess)
     } catch (err) {
       setSimulation(null)
-      toast('error', isApiError(err) ? err.message : p.simulateError)
+      toast('error', userFacingApiError(err, t, p.simulateError))
     } finally {
       setBusy(false)
     }

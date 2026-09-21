@@ -3,15 +3,16 @@ import {
   createPlatformRestaurant,
   deletePlatformRestaurant,
   getPlatformRestaurant,
+  provisionRestaurantOwner,
   reactivatePlatformRestaurant,
   restorePlatformRestaurant,
+  searchPlatformOrganizations,
   searchPlatformRestaurants,
   suspendPlatformRestaurant,
   type PlatformOrganizationLookupDto,
   type PlatformRestaurantLookupDto,
   type PlatformRestaurantStatus,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
@@ -27,19 +28,18 @@ import {
 import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
+import { generateSecurePassword, slugFromName } from '@/lib/platformCredentials'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
+import { ActionMenu } from '@/platform/ui/ActionMenu'
 import { EntityName } from '@/platform/ui/EntityName'
 import { OrganizationPicker, organizationNameFromRestaurant } from '@/platform/ui/EntitySearchPicker'
+import { GeneratedSecretField } from '@/platform/ui/GeneratedSecretField'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
 import { RecordDl } from '@/platform/ui/RecordDl'
-import {
-  lifecycleActionIcon,
-  lifecycleActionsFor,
-  platformRowAccent,
-  type LifecycleAction,
-} from '@/platform/ui/statusTone'
+import { lifecycleActionsFor, platformRowAccent, type LifecycleAction } from '@/platform/ui/statusTone'
 import { useDebouncedValue } from '@/platform/ui/useDebouncedValue'
 
 const PAGE_SIZE = 20
@@ -52,12 +52,15 @@ const emptyCreateForm = {
   priceLevel: '',
 }
 
+type CreateStep = 'restaurant' | 'organization' | 'owner' | 'review'
+
 export function PlatformRestaurantsPage() {
   const { t } = useLocale()
   const { toast } = useToast()
   const { canQuery, canMutate } = usePlatformAccess()
   const p = t.platform.restaurants
   const c = t.platform.common
+  const prov = t.platform.provision
 
   const [inputQ, setInputQ] = useState('')
   const [searchQ, setSearchQ] = useState('')
@@ -73,7 +76,17 @@ export function PlatformRestaurantsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState(emptyCreateForm)
+  const [slugTouched, setSlugTouched] = useState(false)
   const [createOrg, setCreateOrg] = useState<PlatformOrganizationLookupDto | null>(null)
+  const [orgMode, setOrgMode] = useState<'existing' | 'new'>('existing')
+  const [step, setStep] = useState<CreateStep>('restaurant')
+  const [owner, setOwner] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    organizationName: '',
+  })
   const [detail, setDetail] = useState<PlatformRestaurantLookupDto | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
 
@@ -109,14 +122,14 @@ export function PlatformRestaurantsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, page, searchQ, status, p.errorLoad],
+    [canQuery, page, searchQ, status, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -132,6 +145,15 @@ export function PlatformRestaurantsPage() {
     restore: p.confirmRestore,
   }
 
+  const resetCreate = (): void => {
+    setCreateForm(emptyCreateForm)
+    setSlugTouched(false)
+    setCreateOrg(null)
+    setOrgMode('existing')
+    setStep('restaurant')
+    setOwner({ firstName: '', lastName: '', email: '', password: '', organizationName: '' })
+  }
+
   const runPending = async (): Promise<void> => {
     if (!pending) return
     setBusy(true)
@@ -141,10 +163,15 @@ export function PlatformRestaurantsPage() {
       else if (pending.action === 'delete') await deletePlatformRestaurant(pending.id)
       else await restorePlatformRestaurant(pending.id)
       toast('success', p.actionSuccess)
+      const id = pending.id
       setPending(null)
       await load()
+      if (detail?.id === id) {
+        const refreshed = await getPlatformRestaurant(id)
+        setDetail(refreshed)
+      }
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.actionError)
+      toast('error', userFacingApiError(err, t, p.actionError))
     } finally {
       setBusy(false)
     }
@@ -156,18 +183,49 @@ export function PlatformRestaurantsPage() {
       const result = await getPlatformRestaurant(id)
       setDetail(result)
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.detailError)
+      toast('error', userFacingApiError(err, t, p.detailError))
     } finally {
       setDetailBusy(false)
     }
   }
 
+  const canAdvanceRestaurant = Boolean(createForm.name.trim() && createForm.slug.trim())
+  const canAdvanceOrg = orgMode === 'new' || Boolean(createOrg?.id)
+  const canAdvanceOwner =
+    Boolean(
+      owner.firstName.trim() &&
+        owner.lastName.trim() &&
+        owner.email.trim() &&
+        owner.password.length >= 8 &&
+        owner.organizationName.trim(),
+    )
+
+  const goNext = (): void => {
+    if (step === 'restaurant' && canAdvanceRestaurant) setStep('organization')
+    else if (step === 'organization' && canAdvanceOrg) {
+      if (orgMode === 'new') {
+        setOwner((current) => ({
+          ...current,
+          organizationName: current.organizationName.trim() || createForm.name.trim(),
+        }))
+        setStep('owner')
+      } else {
+        setStep('review')
+      }
+    } else if (step === 'owner' && canAdvanceOwner) setStep('review')
+  }
+
+  const goBack = (): void => {
+    if (step === 'review') setStep(orgMode === 'new' ? 'owner' : 'organization')
+    else if (step === 'owner') setStep('organization')
+    else if (step === 'organization') setStep('restaurant')
+  }
+
   const handleCreate = async (): Promise<void> => {
     if (!canMutate) return
-    const organizationId = createOrg?.id ?? ''
     const name = createForm.name.trim()
     const slug = createForm.slug.trim()
-    if (!organizationId || !name || !slug) {
+    if (!name || !slug) {
       toast('error', p.createValidation)
       return
     }
@@ -180,8 +238,45 @@ export function PlatformRestaurantsPage() {
         return
       }
     }
+
     setCreating(true)
     try {
+      let organizationId = createOrg?.id ?? ''
+      if (orgMode === 'new') {
+        if (!canAdvanceOwner) {
+          toast('error', p.createValidation)
+          setCreating(false)
+          return
+        }
+        await provisionRestaurantOwner({
+          email: owner.email.trim(),
+          password: owner.password,
+          firstName: owner.firstName.trim(),
+          lastName: owner.lastName.trim(),
+          organizationName: owner.organizationName.trim(),
+          consents: { termsOfService: true, privacyPolicy: true, marketing: false },
+        })
+        const lookup = await searchPlatformOrganizations({
+          q: owner.organizationName.trim(),
+          page: 1,
+          pageSize: 8,
+        })
+        const match =
+          lookup.items?.find(
+            (row) => row.name?.trim().toLowerCase() === owner.organizationName.trim().toLowerCase(),
+          ) ?? lookup.items?.[0]
+        organizationId = match?.id ?? ''
+        if (!organizationId) {
+          toast('error', p.provisionPartial)
+          resetCreate()
+          setCreateOpen(false)
+          return
+        }
+      }
+      if (!organizationId) {
+        toast('error', p.createValidation)
+        return
+      }
       await createPlatformRestaurant({
         organizationId,
         name,
@@ -191,12 +286,11 @@ export function PlatformRestaurantsPage() {
         priceLevel,
       })
       toast('success', p.createSuccess)
-      setCreateForm(emptyCreateForm)
-      setCreateOrg(null)
+      resetCreate()
       setCreateOpen(false)
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.createError)
+      toast('error', userFacingApiError(err, t, p.createError))
     } finally {
       setCreating(false)
     }
@@ -232,7 +326,10 @@ export function PlatformRestaurantsPage() {
                 <Button
                   type="button"
                   disabled={!canMutate}
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => {
+                    resetCreate()
+                    setCreateOpen(true)
+                  }}
                 >
                   {p.create}
                 </Button>
@@ -291,29 +388,26 @@ export function PlatformRestaurantsPage() {
                 </DataTableCell>
                 <DataTableCell>{organizationNameFromRestaurant(row)}</DataTableCell>
                 <DataTableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={detailBusy}
-                      onClick={() => void openDetail(row.id)}
-                    >
-                      <MaterialIcon name="visibility" size={14} />
-                      {p.view}
-                    </Button>
-                    {lifecycleActionsFor(row.status, row.deletedAt).map((action) => (
-                      <Button
-                        key={action}
-                        size="sm"
-                        variant={action === 'delete' ? 'danger' : 'outline'}
-                        disabled={!canMutate || busy}
-                        onClick={() => setPending({ id: row.id, action })}
-                      >
-                        <MaterialIcon name={lifecycleActionIcon[action]} size={14} />
-                        {p[action]}
-                      </Button>
-                    ))}
-                  </div>
+                  <ActionMenu
+                    label={c.actions}
+                    disabled={busy || detailBusy}
+                    items={[
+                      {
+                        id: 'view',
+                        label: p.view,
+                        icon: 'visibility',
+                        onClick: () => void openDetail(row.id),
+                      },
+                      ...lifecycleActionsFor(row.status, row.deletedAt).map((action) => ({
+                        id: action,
+                        label: p[action],
+                        icon: action === 'delete' ? 'delete' : 'sync',
+                        danger: action === 'delete',
+                        disabled: !canMutate,
+                        onClick: () => setPending({ id: row.id, action }),
+                      })),
+                    ]}
+                  />
                 </DataTableCell>
               </DataTableRow>
             ))}
@@ -352,7 +446,7 @@ export function PlatformRestaurantsPage() {
         onClose={() => {
           if (!creating) {
             setCreateOpen(false)
-            setCreateOrg(null)
+            resetCreate()
           }
         }}
         title={p.createTitle}
@@ -362,65 +456,204 @@ export function PlatformRestaurantsPage() {
             <Button variant="ghost" disabled={creating} onClick={() => setCreateOpen(false)}>
               {t.common.cancel}
             </Button>
-            <Button loading={creating} onClick={() => void handleCreate()}>
-              {p.createSubmit}
-            </Button>
+            {step !== 'restaurant' && (
+              <Button variant="secondary" disabled={creating} onClick={goBack}>
+                {c.back}
+              </Button>
+            )}
+            {step !== 'review' ? (
+              <Button
+                disabled={
+                  creating ||
+                  (step === 'restaurant' && !canAdvanceRestaurant) ||
+                  (step === 'organization' && !canAdvanceOrg) ||
+                  (step === 'owner' && !canAdvanceOwner)
+                }
+                onClick={goNext}
+              >
+                {c.next}
+              </Button>
+            ) : (
+              <Button loading={creating} onClick={() => void handleCreate()}>
+                {p.createSubmit}
+              </Button>
+            )}
           </>
         }
       >
         <div className="space-y-4">
-          <OrganizationPicker
-            selected={createOrg}
-            onSelect={setCreateOrg}
-            required
-            disabled={creating}
-            label={p.organization}
-            hint={p.organizationHint}
-          />
-          <Input
-            label={p.fieldName}
-            value={createForm.name}
-            onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-            required
-            disabled={creating}
-          />
-          <Input
-            label={p.fieldSlug}
-            hint={p.slugHint}
-            value={createForm.slug}
-            onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
-            required
-            disabled={creating}
-          />
-          <Input
-            label={p.fieldDescription}
-            value={createForm.description}
-            onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
-            disabled={creating}
-          />
-          <Input
-            label={p.fieldCuisine}
-            value={createForm.cuisineType}
-            onChange={(e) => setCreateForm((f) => ({ ...f, cuisineType: e.target.value }))}
-            disabled={creating}
-          />
-          <Input
-            label={p.fieldPriceLevel}
-            hint={p.createPriceLevelHint}
-            value={createForm.priceLevel}
-            onChange={(e) => setCreateForm((f) => ({ ...f, priceLevel: e.target.value }))}
-            inputMode="numeric"
-            disabled={creating}
-          />
+          <p className="text-label-md text-on-surface-variant">
+            {step === 'restaurant'
+              ? p.stepRestaurant
+              : step === 'organization'
+                ? p.stepOrganization
+                : step === 'owner'
+                  ? p.stepOwner
+                  : p.stepReview}
+          </p>
+
+          {step === 'restaurant' && (
+            <>
+              <Input
+                label={p.fieldName}
+                value={createForm.name}
+                onChange={(e) => {
+                  const name = e.target.value
+                  setCreateForm((f) => ({
+                    ...f,
+                    name,
+                    slug: slugTouched ? f.slug : slugFromName(name),
+                  }))
+                }}
+                required
+                disabled={creating}
+              />
+              <Input
+                label={p.fieldSlug}
+                hint={p.slugAuto}
+                value={createForm.slug}
+                onChange={(e) => {
+                  setSlugTouched(true)
+                  setCreateForm((f) => ({ ...f, slug: e.target.value }))
+                }}
+                required
+                disabled={creating}
+              />
+              <Input
+                label={p.fieldDescription}
+                value={createForm.description}
+                onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+                disabled={creating}
+              />
+              <Input
+                label={p.fieldCuisine}
+                value={createForm.cuisineType}
+                onChange={(e) => setCreateForm((f) => ({ ...f, cuisineType: e.target.value }))}
+                disabled={creating}
+              />
+              <Input
+                label={p.fieldPriceLevel}
+                hint={p.createPriceLevelHint}
+                value={createForm.priceLevel}
+                onChange={(e) => setCreateForm((f) => ({ ...f, priceLevel: e.target.value }))}
+                inputMode="numeric"
+                disabled={creating}
+              />
+            </>
+          )}
+
+          {step === 'organization' && (
+            <>
+              <Select
+                label={p.organization}
+                value={orgMode}
+                onChange={(e) => {
+                  setOrgMode(e.target.value as 'existing' | 'new')
+                  setCreateOrg(null)
+                }}
+                disabled={creating}
+              >
+                <option value="existing">{p.existingOrganization}</option>
+                <option value="new">{p.newOrganization}</option>
+              </Select>
+              {orgMode === 'existing' ? (
+                <OrganizationPicker
+                  selected={createOrg}
+                  onSelect={setCreateOrg}
+                  required
+                  disabled={creating}
+                  label={p.organization}
+                  hint={p.organizationHint}
+                />
+              ) : (
+                <p className="text-body-sm text-on-surface-variant">{p.ownerHint}</p>
+              )}
+            </>
+          )}
+
+          {step === 'owner' && (
+            <>
+              <p className="text-body-sm text-on-surface-variant">{p.ownerHint}</p>
+              <p className="text-body-md font-semibold text-on-surface">
+                {p.ownerOf.replace('{name}', createForm.name.trim() || '—')}
+              </p>
+              <Input
+                label={p.organization}
+                value={owner.organizationName}
+                onChange={(e) => setOwner((o) => ({ ...o, organizationName: e.target.value }))}
+                required
+                disabled={creating}
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Input
+                  label={prov.firstName}
+                  value={owner.firstName}
+                  onChange={(e) => setOwner((o) => ({ ...o, firstName: e.target.value }))}
+                  required
+                  disabled={creating}
+                />
+                <Input
+                  label={prov.lastName}
+                  value={owner.lastName}
+                  onChange={(e) => setOwner((o) => ({ ...o, lastName: e.target.value }))}
+                  required
+                  disabled={creating}
+                />
+              </div>
+              <Input
+                type="email"
+                label={p.ownerEmail}
+                value={owner.email}
+                onChange={(e) => setOwner((o) => ({ ...o, email: e.target.value }))}
+                required
+                disabled={creating}
+              />
+              <GeneratedSecretField
+                label={p.ownerPassword}
+                hint={prov.passwordHint}
+                value={owner.password}
+                disabled={creating}
+                generateLabel={c.generatePassword}
+                regenerateLabel={c.regenerate}
+                copyLabel={t.common.copy}
+                copiedLabel={t.common.copied}
+                onChange={(value) => setOwner((o) => ({ ...o, password: value }))}
+                onGenerate={() => setOwner((o) => ({ ...o, password: generateSecurePassword() }))}
+              />
+            </>
+          )}
+
+          {step === 'review' && (
+            <dl className="space-y-2 text-body-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-on-surface-variant">{p.fieldName}</dt>
+                <dd className="font-medium text-on-surface">{createForm.name}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-on-surface-variant">{p.fieldSlug}</dt>
+                <dd className="font-medium text-on-surface">{createForm.slug}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-on-surface-variant">{p.organization}</dt>
+                <dd className="font-medium text-on-surface">
+                  {orgMode === 'existing' ? createOrg?.name : owner.organizationName}
+                </dd>
+              </div>
+              {orgMode === 'new' && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-on-surface-variant">{p.ownerEmail}</dt>
+                  <dd className="font-medium text-on-surface">{owner.email}</dd>
+                </div>
+              )}
+              <p className="pt-2 text-on-surface-variant">
+                {orgMode === 'new' ? p.provisionThenCreate : p.createHint}
+              </p>
+            </dl>
+          )}
         </div>
       </Modal>
 
-      <Modal
-        open={detail !== null}
-        onClose={() => setDetail(null)}
-        title={p.detailTitle}
-        size="lg"
-      >
+      <Modal open={detail !== null} onClose={() => setDetail(null)} title={p.detailTitle} size="lg">
         {detail ? <RecordDl record={detail as Record<string, unknown>} /> : null}
       </Modal>
     </>

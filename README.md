@@ -20,10 +20,13 @@ mklink /J node_modules D:\Tavola\node_modules
 ```
 
 - Login is required by default. Set `VITE_PLATFORM_PREVIEW=true` only to browse UI chrome without a token.
-- API: same backend as restaurant (`https://api.tavola.business` via Vite proxy).
-- Platform tokens are a separate issuer. This app does **not** call restaurant `POST /auth/refresh`.
-- Dashboard `from`/`to` are sent as ISO date-times (`YYYY-MM-DDTHH:mm:ss.sssZ`) as required by `GET /platform-admin/dashboard`.
-- Console pages map 1:1 to `03 - Platform Owner` in the main Postman collection (`/platform-admin/*`). Subscriptions live at `/platform/subscriptions`.
+- API: same backend as restaurant (`https://api.tavola.business` via Vite proxy `/api/v1`).
+- Auth is **only** `POST /platform-admin/login` with Bearer `platformAdminAccessToken`. This app does **not** call restaurant `POST /auth/login` or `POST /auth/refresh`.
+- Session identity comes from `GET /platform-admin/me` (`userId`, `platformAdminId`, live `role`). JWT `role` is PlatformAdmin / PlatformSupport — not `actorType`.
+- Empty list search omits `q` rather than sending `q=`.
+- Broadcast `202` is shown as **queued**, not delivered.
+- Revenue / dashboard / audit date ranges are validated client-side to 366 days.
+- Console pages map to `03 - Platform Owner` in `postman/TAVLA-API.postman_collection.json`. Subscriptions live at `/platform/subscriptions`.
 
 ## Layout
 

@@ -11,17 +11,19 @@ import {
   getPlatformAdminMe,
   platformAdminLogin,
   platformAdminLogout,
-  type PlatformAdminAccountDto,
   type PlatformAdminLoginResponse,
+  type PlatformAdminMeDto,
 } from '@/platform/api/platformAdmin'
 import { tokenStore } from '@/api/tokenStore'
 import { parseAccessTokenClaims } from '@/lib/accessTokenClaims'
 import {
   buildDisplayName,
   buildInitials,
+  isPlatformAdminRole,
   isPlatformActor,
   type ActorType,
   type AuthIdentity,
+  type PlatformAdminRole,
   type UserAccountStatus,
 } from '@/types/auth'
 
@@ -51,10 +53,31 @@ function nestedUserRecord(data: PlatformAdminLoginResponse): Record<string, unkn
   return null
 }
 
-/**
- * Postman only documents `data.accessToken`. Identity is assembled from optional
- * nested user fields, then JWT claims (`sub`, `email`, `actorType`).
- */
+function resolvePlatformRole(
+  liveRole: string | undefined,
+  jwtRole: PlatformAdminRole | null,
+  jwtActor: ActorType | null,
+): PlatformAdminRole | null {
+  if (isPlatformAdminRole(liveRole)) return liveRole
+  if (jwtRole) return jwtRole
+  if (isPlatformAdminRole(jwtActor)) return jwtActor
+  return null
+}
+
+function toStatus(value: string): UserAccountStatus {
+  if (
+    value === 'Pending' ||
+    value === 'Active' ||
+    value === 'Suspended' ||
+    value === 'Locked' ||
+    value === 'Deleted' ||
+    value === 'Anonymized'
+  ) {
+    return value
+  }
+  return 'Active'
+}
+
 function identityFromPlatformSession(
   accessToken: string,
   data: PlatformAdminLoginResponse | null,
@@ -65,17 +88,13 @@ function identityFromPlatformSession(
   const firstName = readString(nested?.firstName)
   const lastName = readString(nested?.lastName)
   const email = readString(nested?.email) || claims?.email || emailFallback
-  const userId =
-    readString(nested?.userId) || readString(nested?.id) || claims?.sub || email
-
-  if (!userId) return null
-
-  const claimed = claims?.actorType
-  if (claimed && !isPlatformActor(claimed)) {
-    return null
-  }
-
-  const actorType: ActorType = isPlatformActor(claimed) ? claimed : 'PlatformAdmin'
+  const userId = readString(nested?.userId) || claims?.sub || ''
+  const platformRole = resolvePlatformRole(
+    readString(nested?.role) || undefined,
+    claims?.role ?? null,
+    claims?.actorType ?? null,
+  )
+  if (!userId || !platformRole) return null
 
   return {
     userId,
@@ -86,7 +105,9 @@ function identityFromPlatformSession(
     initials: buildInitials(firstName, lastName, email),
     status: 'Active',
     emailVerified: true,
-    actorType,
+    actorType: platformRole,
+    platformRole,
+    platformAdminId: readString(nested?.platformAdminId) || null,
     organization: null,
     sessionId: data?.sessionId ?? claims?.sessionId ?? null,
     permissionsVersion: claims?.permissionsVersion ?? null,
@@ -100,32 +121,14 @@ function identityFromPlatformSession(
   }
 }
 
-function identityFromMe(
-  accessToken: string,
-  me: PlatformAdminAccountDto,
-): AuthIdentity | null {
+function identityFromMe(accessToken: string, me: PlatformAdminMeDto): AuthIdentity | null {
   const claims = parseAccessTokenClaims(accessToken)
   const email = readString(me.email) || claims?.email || ''
   const firstName = readString(me.firstName)
   const lastName = readString(me.lastName)
-  const userId = readString(me.id) || claims?.sub || email
-  if (!userId) return null
-
-  const role = readString(me.role)
-  const claimed = claims?.actorType || (isPlatformActor(role) ? role : undefined)
-  if (claimed && !isPlatformActor(claimed)) return null
-  const actorType: ActorType = isPlatformActor(claimed) ? claimed : 'PlatformAdmin'
-
-  const statusRaw = readString(me.status)
-  const status: UserAccountStatus =
-    statusRaw === 'Pending' ||
-    statusRaw === 'Active' ||
-    statusRaw === 'Suspended' ||
-    statusRaw === 'Locked' ||
-    statusRaw === 'Deleted' ||
-    statusRaw === 'Anonymized'
-      ? statusRaw
-      : 'Active'
+  const userId = me.userId || claims?.sub || ''
+  const platformRole = resolvePlatformRole(me.role, claims?.role ?? null, claims?.actorType ?? null)
+  if (!userId || !platformRole) return null
 
   return {
     userId,
@@ -134,9 +137,11 @@ function identityFromMe(
     lastName,
     displayName: buildDisplayName(firstName, lastName, email),
     initials: buildInitials(firstName, lastName, email),
-    status,
+    status: toStatus(readString(me.status)),
     emailVerified: true,
-    actorType,
+    actorType: platformRole,
+    platformRole,
+    platformAdminId: me.platformAdminId || null,
     organization: null,
     sessionId: claims?.sessionId ?? null,
     permissionsVersion: claims?.permissionsVersion ?? null,
@@ -181,18 +186,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (identity) {
           setUser(identity)
         } else {
-          const fallback = identityFromPlatformSession(token, { accessToken: token }, '')
-          if (fallback) setUser(fallback)
-          else tokenStore.clear()
+          tokenStore.clear()
+          setUser(null)
         }
       } catch {
         if (cancelled) return
-        const identity = identityFromPlatformSession(token, { accessToken: token }, '')
-        if (identity) {
-          setUser(identity)
-        } else {
-          tokenStore.clear()
-        }
+        tokenStore.clear()
+        setUser(null)
       } finally {
         if (!cancelled) {
           setCanClearSessions(Boolean(tokenStore.getRefreshToken()))
@@ -226,7 +226,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     setCanClearSessions(Boolean(data.refreshToken))
 
-    const identity = identityFromPlatformSession(data.accessToken, data, email.trim())
+    let identity: AuthIdentity | null = null
+    try {
+      const me = await getPlatformAdminMe()
+      identity = identityFromMe(data.accessToken, me)
+    } catch {
+      identity = identityFromPlatformSession(data.accessToken, data, email.trim())
+    }
+
     if (!identity) {
       tokenStore.clear()
       setUser(null)
@@ -252,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      isAuthenticated: user !== null && isPlatformActor(user.actorType),
+      isAuthenticated: user !== null && isPlatformActor(user.platformRole ?? user.actorType),
       isLoading,
       canClearSessions,
       loginPlatformAdmin,

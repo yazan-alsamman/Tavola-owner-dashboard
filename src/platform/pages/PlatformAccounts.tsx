@@ -5,9 +5,11 @@ import {
   forceLogoutPlatformAccount,
   resetPlatformAccountCredentials,
   searchPlatformAccounts,
+  accountRecordId,
   type PlatformUserAccountDto,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
+import { generateSecurePassword } from '@/lib/platformCredentials'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
@@ -24,7 +26,9 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
+import { ActionMenu } from '@/platform/ui/ActionMenu'
 import { EntityName } from '@/platform/ui/EntityName'
+import { GeneratedSecretField } from '@/platform/ui/GeneratedSecretField'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 import { PlatformStatusBadge } from '@/platform/ui/PlatformStatusBadge'
@@ -93,14 +97,14 @@ export function PlatformAccountsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, page, searchQ, status, accountType, p.errorLoad],
+    [canQuery, page, searchQ, status, accountType, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -124,10 +128,10 @@ export function PlatformAccountsPage() {
     }
     setBusy(true)
     try {
-      if (pending === 'forceLogout') await forceLogoutPlatformAccount(selected.id)
-      else if (pending === 'disable') await disablePlatformAccountLogin(selected.id)
-      else if (pending === 'enable') await enablePlatformAccountLogin(selected.id)
-      else await resetPlatformAccountCredentials(selected.id, { newPassword })
+      if (pending === 'forceLogout') await forceLogoutPlatformAccount(accountRecordId(selected))
+      else if (pending === 'disable') await disablePlatformAccountLogin(accountRecordId(selected))
+      else if (pending === 'enable') await enablePlatformAccountLogin(accountRecordId(selected))
+      else await resetPlatformAccountCredentials(accountRecordId(selected), { newPassword })
       toast('success', p.actionSuccess)
       if (pending === 'reset') {
         setNewPassword('')
@@ -136,7 +140,7 @@ export function PlatformAccountsPage() {
       setPending(null)
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.actionError)
+      toast('error', userFacingApiError(err, t, p.actionError))
     } finally {
       setBusy(false)
     }
@@ -248,63 +252,59 @@ export function PlatformAccountsPage() {
                   <PlatformStatusBadge status={row.status} deletedAt={row.deletedAt} />
                 </DataTableCell>
                 <DataTableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setDetail(row)
-                        setSelected(row)
-                      }}
-                    >
-                      {p.view}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!canMutate || busy}
-                      onClick={() => {
-                        setSelected(row)
-                        setPending('forceLogout')
-                      }}
-                    >
-                      {p.forceLogout}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={!canMutate || busy}
-                      onClick={() => {
-                        setSelected(row)
-                        setPending('disable')
-                      }}
-                    >
-                      {p.disable}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={!canMutate || busy}
-                      onClick={() => {
-                        setSelected(row)
-                        setPending('enable')
-                      }}
-                    >
-                      {p.enable}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={!canMutate || busy}
-                      onClick={() => {
-                        setSelected(row)
-                        setShowReset(true)
-                        setNewPassword('')
-                      }}
-                    >
-                      {p.showReset}
-                    </Button>
-                  </div>
+                  <ActionMenu
+                    label={c.actions}
+                    disabled={busy}
+                    items={[
+                      {
+                        id: 'view',
+                        label: p.view,
+                        icon: 'visibility',
+                        onClick: () => {
+                          setDetail(row)
+                          setSelected(row)
+                        },
+                      },
+                      {
+                        id: 'forceLogout',
+                        label: p.forceLogout,
+                        disabled: !canMutate,
+                        onClick: () => {
+                          setSelected(row)
+                          setPending('forceLogout')
+                        },
+                      },
+                      {
+                        id: 'disable',
+                        label: p.disable,
+                        danger: true,
+                        disabled: !canMutate,
+                        onClick: () => {
+                          setSelected(row)
+                          setPending('disable')
+                        },
+                      },
+                      {
+                        id: 'enable',
+                        label: p.enable,
+                        disabled: !canMutate,
+                        onClick: () => {
+                          setSelected(row)
+                          setPending('enable')
+                        },
+                      },
+                      {
+                        id: 'reset',
+                        label: p.showReset,
+                        disabled: !canMutate,
+                        onClick: () => {
+                          setSelected(row)
+                          setShowReset(true)
+                          setNewPassword(generateSecurePassword())
+                        },
+                      },
+                    ]}
+                  />
                 </DataTableCell>
               </DataTableRow>
             ))}
@@ -362,13 +362,17 @@ export function PlatformAccountsPage() {
           </>
         }
       >
-        <Input
-          type="password"
+        <GeneratedSecretField
           label={p.newPassword}
+          hint={p.passwordHint}
           value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          minLength={12}
           disabled={!canMutate || busy}
+          generateLabel={c.generatePassword}
+          regenerateLabel={c.regenerate}
+          copyLabel={t.common.copy}
+          copiedLabel={t.common.copied}
+          onChange={setNewPassword}
+          onGenerate={() => setNewPassword(generateSecurePassword())}
         />
       </Modal>
 

@@ -5,8 +5,10 @@ import {
   recordPlatformAcquisitionManual,
   reversePlatformAcquisition,
   type PlatformRestaurantLookupDto,
+  type PlatformUserAccountDto,
+  accountRecordId,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { Input, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
@@ -25,7 +27,7 @@ import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { RestaurantPicker } from '@/platform/ui/EntitySearchPicker'
+import { AccountPicker, RestaurantPicker } from '@/platform/ui/EntitySearchPicker'
 import { formatPlatformDateTime } from '@/platform/ui/dates'
 import { PaginationBar } from '@/platform/ui/PaginationBar'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
@@ -52,7 +54,8 @@ export function PlatformAcquisitionsPage() {
   const [lookupId, setLookupId] = useState('')
   const [lookupRecord, setLookupRecord] = useState<Record<string, unknown> | null>(null)
   const [lookupBusy, setLookupBusy] = useState(false)
-  const [manualUserId, setManualUserId] = useState('')
+  const [showTechnical, setShowTechnical] = useState(false)
+  const [manualCustomer, setManualCustomer] = useState<PlatformUserAccountDto | null>(null)
   const [manualGuestId, setManualGuestId] = useState('')
   const [manualReason, setManualReason] = useState('')
   const [confirmManual, setConfirmManual] = useState(false)
@@ -82,14 +85,14 @@ export function PlatformAcquisitionsPage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setItems([])
         setTotal(0)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, selected, page, p.errorLoad],
+    [canQuery, selected, page, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export function PlatformAcquisitionsPage() {
       setLookupRecord(asRecord(result))
     } catch (err) {
       setLookupRecord(null)
-      toast('error', isApiError(err) ? err.message : p.lookupError)
+      toast('error', userFacingApiError(err, t, p.lookupError))
     } finally {
       setLookupBusy(false)
     }
@@ -129,7 +132,7 @@ export function PlatformAcquisitionsPage() {
       if (lookupId.trim() === reverseId) await runLookup()
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.reverseError)
+      toast('error', userFacingApiError(err, t, p.reverseError))
     } finally {
       setBusy(false)
     }
@@ -137,7 +140,7 @@ export function PlatformAcquisitionsPage() {
 
   const runManual = async (): Promise<void> => {
     const restaurantId = selected?.id
-    const userId = manualUserId.trim()
+    const userId = accountRecordId(manualCustomer ?? { id: '' })
     const guestId = manualGuestId.trim()
     if (!restaurantId || !manualReason.trim() || Number(Boolean(userId)) + Number(Boolean(guestId)) !== 1) {
       toast('error', p.manualValidation)
@@ -152,12 +155,12 @@ export function PlatformAcquisitionsPage() {
       })
       toast('success', p.manualSuccess)
       setConfirmManual(false)
-      setManualUserId('')
+      setManualCustomer(null)
       setManualGuestId('')
       setManualReason('')
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.manualError)
+      toast('error', userFacingApiError(err, t, p.manualError))
     } finally {
       setBusy(false)
     }
@@ -196,37 +199,58 @@ export function PlatformAcquisitionsPage() {
 
             <FilterBar
               actions={
-                <Button type="button" variant="secondary" loading={lookupBusy} onClick={() => void runLookup()}>
-                  {p.lookup}
+                <Button type="button" variant="ghost" onClick={() => setShowTechnical((v) => !v)}>
+                  {p.technicalLookup}
                 </Button>
               }
             >
-              <div className="min-w-[240px] flex-1">
-                <Input
-                  label={p.lookupId}
-                  hint={p.lookupEmpty}
-                  value={lookupId}
-                  onChange={(e) => setLookupId(e.target.value)}
-                />
-              </div>
+              {showTechnical ? (
+                <div className="min-w-[240px] flex-1">
+                  <Input
+                    label={p.lookupId}
+                    hint={p.lookupEmpty}
+                    value={lookupId}
+                    onChange={(e) => setLookupId(e.target.value)}
+                  />
+                </div>
+              ) : null}
             </FilterBar>
+            {showTechnical && (
+              <Button type="button" variant="secondary" loading={lookupBusy} onClick={() => void runLookup()}>
+                {p.lookup}
+              </Button>
+            )}
 
             {canMutate && (
               <Card className="max-w-xl space-y-4">
                 <CardTitle>{p.manualTitle}</CardTitle>
                 <p className="text-body-sm text-on-surface-variant">{p.manualSubtitle}</p>
-                <Input
-                  label={p.manualUserId}
-                  value={manualUserId}
-                  onChange={(e) => setManualUserId(e.target.value)}
+                <AccountPicker
+                  selected={manualCustomer}
+                  onSelect={(row) => {
+                    setManualCustomer(row)
+                    if (row) setManualGuestId('')
+                  }}
                   disabled={busy || Boolean(manualGuestId.trim())}
+                  label={p.manualUserId}
+                  accountType="Customer"
                 />
-                <Input
-                  label={p.manualGuestId}
-                  value={manualGuestId}
-                  onChange={(e) => setManualGuestId(e.target.value)}
-                  disabled={busy || Boolean(manualUserId.trim())}
-                />
+                <details className="rounded-lg border border-outline-variant/60 px-3 py-2">
+                  <summary className="cursor-pointer text-label-md text-on-surface-variant">
+                    {t.platform.common.technicalDetails}
+                  </summary>
+                  <div className="mt-3">
+                    <Input
+                      label={p.manualGuestId}
+                      value={manualGuestId}
+                      onChange={(e) => {
+                        setManualGuestId(e.target.value)
+                        if (e.target.value.trim()) setManualCustomer(null)
+                      }}
+                      disabled={busy || Boolean(manualCustomer)}
+                    />
+                  </div>
+                </details>
                 <Textarea
                   label={p.manualReason}
                   value={manualReason}

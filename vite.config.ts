@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import { loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import https from 'node:https'
 import path from 'path'
 
 export default defineConfig(({ mode }) => {
@@ -22,6 +23,10 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: proxyTarget,
           changeOrigin: true,
+          secure: true,
+          timeout: 120_000,
+          proxyTimeout: 120_000,
+          agent: new https.Agent({ keepAlive: true, family: 4, timeout: 120_000 }),
         },
       },
     },

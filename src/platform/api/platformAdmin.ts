@@ -1,5 +1,8 @@
 import { apiRequest } from '@/api/client'
 import type { PaginatedData } from '@/api/types'
+import type { PlatformAdminRole } from '@/types/auth'
+
+export type { PlatformAdminRole }
 
 /** Platform Admin login — isolated issuer (Postman `POST /platform-admin/login`). */
 export interface PlatformAdminLoginRequest {
@@ -58,12 +61,66 @@ export interface PlatformOrganizationLookupDto {
 
 export interface PlatformAdminAccountDto {
   id: string
+  userId?: string
+  platformAdminId?: string
   email?: string
   role?: string
   status?: string
   firstName?: string
   lastName?: string
   [key: string]: unknown
+}
+
+/** Postman `GET /platform-admin/me` success `data`. */
+export interface PlatformAdminMeDto {
+  userId: string
+  platformAdminId: string
+  email?: string
+  firstName?: string
+  lastName?: string
+  role: PlatformAdminRole
+  status?: string
+  platformAdminCreatedAt?: string
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+export function normalizePlatformAdminMe(raw: unknown): PlatformAdminMeDto {
+  const record = asObject(raw)
+  const userId = readOptionalString(record, 'userId') ?? ''
+  const platformAdminId = readOptionalString(record, 'platformAdminId') ?? ''
+  const roleRaw = readOptionalString(record, 'role')
+  const role: PlatformAdminRole = roleRaw === 'PlatformSupport' ? 'PlatformSupport' : 'PlatformAdmin'
+  return {
+    userId,
+    platformAdminId,
+    email: readOptionalString(record, 'email'),
+    firstName: readOptionalString(record, 'firstName'),
+    lastName: readOptionalString(record, 'lastName'),
+    role,
+    status: readOptionalString(record, 'status'),
+    platformAdminCreatedAt: readOptionalString(record, 'platformAdminCreatedAt'),
+  }
+}
+
+export function accountRecordId(row: unknown): string {
+  const record = asObject(row)
+  return readOptionalString(record, 'id') ?? readOptionalString(record, 'userId') ?? ''
+}
+
+export function adminRecordId(row: unknown): string {
+  const record = asObject(row)
+  return readOptionalString(record, 'id') ?? readOptionalString(record, 'platformAdminId') ?? ''
 }
 
 export interface RevenueReportDto {
@@ -164,8 +221,9 @@ export async function platformAdminLogout(refreshToken: string): Promise<void> {
 /** Current platform admin — Postman `GET /platform-admin/me`. */
 export async function getPlatformAdminMe(
   signal?: AbortSignal,
-): Promise<PlatformAdminAccountDto> {
-  return apiRequest<PlatformAdminAccountDto>('/platform-admin/me', { signal })
+): Promise<PlatformAdminMeDto> {
+  const raw = await apiRequest<unknown>('/platform-admin/me', { signal })
+  return normalizePlatformAdminMe(raw)
 }
 
 export async function getPlatformDashboard(
@@ -206,7 +264,7 @@ export async function searchPlatformRestaurants(
     '/platform-admin/restaurants',
     {
       query: {
-        q: params.q ?? '',
+        q: params.q?.trim() || undefined,
         status: params.status || undefined,
         page: params.page ?? 1,
         limit: params.pageSize ?? 20,
@@ -281,7 +339,7 @@ export async function searchPlatformOrganizations(
     '/platform-admin/organizations',
     {
       query: {
-        q: params.q ?? '',
+        q: params.q?.trim() || undefined,
         status: params.status || undefined,
         page: params.page ?? 1,
         limit: params.pageSize ?? 20,
@@ -361,7 +419,7 @@ export async function searchPlatformAccounts(
 ): Promise<PaginatedData<PlatformUserAccountDto>> {
   return apiRequest<PaginatedData<PlatformUserAccountDto>>('/platform-admin/accounts', {
     query: {
-      q: params.q ?? '',
+      q: params.q?.trim() || undefined,
       status: params.status || undefined,
       accountType: params.accountType || undefined,
       page: params.page ?? 1,
@@ -429,8 +487,6 @@ export async function getPlatformAdmin(
     signal,
   })
 }
-
-export type PlatformAdminRole = 'PlatformAdmin' | 'PlatformSupport'
 
 export interface CreatePlatformAdminRequest {
   email: string
@@ -535,6 +591,8 @@ export async function listPlatformAuditLogs(
     actorId?: string
     organizationId?: string
     action?: string
+    targetType?: string
+    targetId?: string
   },
   signal?: AbortSignal,
 ): Promise<PaginatedData<Record<string, unknown>>> {
@@ -547,6 +605,8 @@ export async function listPlatformAuditLogs(
       actorId: params.actorId,
       organizationId: params.organizationId,
       action: params.action,
+      targetType: params.targetType,
+      targetId: params.targetId,
     },
     signal,
   })
@@ -558,8 +618,8 @@ export async function listPlatformPricingRules(
 ): Promise<PaginatedData<Record<string, unknown>>> {
   return apiRequest('/platform-admin/pricing/rules', {
     query: {
-      label: params.label ?? '',
-      id: params.id ?? '',
+      label: params.label?.trim() || undefined,
+      id: params.id?.trim() || undefined,
       page: params.page ?? 1,
       limit: params.pageSize ?? 20,
     },

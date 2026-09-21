@@ -9,7 +9,7 @@ import {
   type RevenueGroupBy,
   type RevenueReportDto,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { StatCard } from '@/components/ui/StatCard'
@@ -27,7 +27,7 @@ import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
 import { OrganizationPicker, RestaurantPicker, entityLabel } from '@/platform/ui/EntitySearchPicker'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
-import { isoDaysAgo, todayIso } from '@/platform/ui/dates'
+import { isoDaysAgo, isWithinMaxPlatformRange, todayIso } from '@/platform/ui/dates'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
 
 const GROUP_BY_OPTIONS: RevenueGroupBy[] = [
@@ -111,13 +111,13 @@ export function PlatformRevenuePage() {
         }
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setReport(null)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [applied, canQuery, p.errorLoad],
+    [applied, canQuery, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -143,7 +143,7 @@ export function PlatformRevenuePage() {
       URL.revokeObjectURL(url)
       toast('success', p.exportSuccess)
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : p.exportError)
+      toast('error', userFacingApiError(err, t, p.exportError))
     } finally {
       setExporting(false)
     }
@@ -203,7 +203,11 @@ export function PlatformRevenuePage() {
           actions={
             <Button
               variant="secondary"
-              onClick={() =>
+              onClick={() => {
+                if (!isWithinMaxPlatformRange(from, to)) {
+                  toast('error', t.platform.common.rangeTooLong)
+                  return
+                }
                 setApplied({
                   from,
                   to,
@@ -211,7 +215,7 @@ export function PlatformRevenuePage() {
                   restaurantId: restaurant?.id,
                   organizationId: organization?.id,
                 })
-              }
+              }}
               loading={loading}
             >
               {p.apply}

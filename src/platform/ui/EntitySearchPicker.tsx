@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {
+  listPlatformAdmins,
   searchPlatformAccounts,
   searchPlatformOrganizations,
   searchPlatformRestaurants,
+  type PlatformAdminAccountDto,
   type PlatformOrganizationLookupDto,
   type PlatformRestaurantLookupDto,
   type PlatformUserAccountDto,
@@ -24,7 +26,11 @@ export function entityLabel(row: { name?: string; slug?: string }): string {
   return row.name?.trim() || row.slug?.trim() || '—'
 }
 
-export function accountLabel(row: PlatformUserAccountDto): string {
+export function accountLabel(row: {
+  firstName?: string
+  lastName?: string
+  email?: string
+}): string {
   const name = [row.firstName, row.lastName].filter(Boolean).join(' ').trim()
   return name || row.email?.trim() || '—'
 }
@@ -80,7 +86,7 @@ export function EntitySearchPicker<T extends SearchPickerItem>({
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (disabled || selected || debounced.trim().length < 1) {
+    if (disabled || selected || !open) {
       setMatches([])
       setLoading(false)
       return
@@ -98,7 +104,7 @@ export function EntitySearchPicker<T extends SearchPickerItem>({
         if (!ac.signal.aborted) setLoading(false)
       })
     return () => ac.abort()
-  }, [debounced, disabled, search, selected])
+  }, [debounced, disabled, search, selected, open])
 
   useEffect(() => {
     const onPointer = (event: MouseEvent): void => {
@@ -152,7 +158,7 @@ export function EntitySearchPicker<T extends SearchPickerItem>({
     )
   }
 
-  const showList = open && (loading || query.trim().length > 0)
+  const showList = open && (loading || matches.length > 0 || query.trim().length > 0)
 
   return (
     <div ref={rootRef} className={cn('relative min-w-[240px] flex-1', className)}>
@@ -355,6 +361,56 @@ export function AccountPicker({
       required={required}
       className={className}
       search={searchAccounts}
+      getLabel={accountLabel}
+      getSecondary={(row) => row.email}
+      getStatus={(row) => row.status}
+    />
+  )
+}
+
+export function AdminPicker({
+  selected,
+  onSelect,
+  disabled,
+  required,
+  label,
+  hint,
+  className,
+}: {
+  selected: PlatformAdminAccountDto | null
+  onSelect: (item: PlatformAdminAccountDto | null) => void
+  disabled?: boolean
+  required?: boolean
+  label?: string
+  hint?: string
+  className?: string
+}) {
+  const { t } = useLocale()
+  const searchAdmins = useCallback(async (q: string, signal: AbortSignal) => {
+    const result = await listPlatformAdmins({ page: 1, pageSize: 50 }, signal)
+    const needle = q.trim().toLowerCase()
+    const rows = (result.items ?? []).map((row) => ({
+      ...row,
+      id: row.id || row.platformAdminId || row.userId || '',
+    }))
+    if (!needle) return rows
+    return rows.filter((row) => {
+      const name = [row.firstName, row.lastName].filter(Boolean).join(' ').toLowerCase()
+      return name.includes(needle) || (row.email ?? '').toLowerCase().includes(needle)
+    })
+  }, [])
+  return (
+    <EntitySearchPicker
+      label={label ?? t.platform.picker.admin}
+      placeholder={t.platform.picker.adminPlaceholder}
+      hint={hint}
+      icon="admin_panel_settings"
+      selected={selected}
+      onSelect={onSelect}
+      disabled={disabled}
+      required={required}
+      className={className}
+      search={searchAdmins}
       getLabel={accountLabel}
       getSecondary={(row) => row.email}
       getStatus={(row) => row.status}

@@ -71,9 +71,14 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, handleKeyDown])
+
+  useEffect(() => {
+    if (!open) return
 
     restoreFocusRef.current = document.activeElement as HTMLElement | null
-    document.addEventListener('keydown', handleKeyDown)
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
@@ -81,11 +86,10 @@ export function Modal({
     ;(firstField ?? panelRef.current)?.focus()
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = previousOverflow
       restoreFocusRef.current?.focus?.()
     }
-  }, [open, handleKeyDown])
+  }, [open])
 
   if (!open) return null
 

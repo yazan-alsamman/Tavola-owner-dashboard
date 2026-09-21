@@ -8,7 +8,7 @@ import {
   suspendOrganizationSubscription,
   type PlatformOrganizationLookupDto,
 } from '@/platform/api/platformAdmin'
-import { isApiError } from '@/api/errors'
+import { userFacingApiError } from '@/lib/platformErrors'
 import { Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { FilterBar } from '@/components/ui/FilterBar'
@@ -91,13 +91,13 @@ export function PlatformSubscriptionsPage() {
         setSubscription(asRecord(sub))
       } catch (err) {
         if (signal?.aborted) return
-        setError(isApiError(err) ? err.message : p.errorLoad)
+        setError(userFacingApiError(err, t, p.errorLoad))
         setSubscription(null)
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [canQuery, selected, p.errorLoad],
+    [canQuery, selected, p.errorLoad, t],
   )
 
   useEffect(() => {
@@ -138,7 +138,7 @@ export function PlatformSubscriptionsPage() {
       setPending(null)
       await load()
     } catch (err) {
-      toast('error', isApiError(err) ? err.message : pending === 'assign' ? p.assignError : p.actionError)
+      toast('error', userFacingApiError(err, t, pending === 'assign' ? p.assignError : p.actionError))
     } finally {
       setBusy(false)
     }

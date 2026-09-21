@@ -1,9 +1,10 @@
 import { useAuth } from '@/context/AuthContext'
-import { isPlatformActor } from '@/types/auth'
+import { isPlatformAdminRole } from '@/types/auth'
 
 export function usePlatformAccess() {
   const { user, isAuthenticated } = useAuth()
-  const canQuery = isAuthenticated && isPlatformActor(user?.actorType)
-  const canMutate = isAuthenticated && user?.actorType === 'PlatformAdmin'
-  return { user, canQuery, canMutate }
+  const role = user?.platformRole
+  const canQuery = isAuthenticated && isPlatformAdminRole(role)
+  const canMutate = isAuthenticated && role === 'PlatformAdmin'
+  return { user, canQuery, canMutate, role }
 }
