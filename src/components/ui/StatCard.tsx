@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { MaterialIcon } from '@/components/ui/Icon'
 
 interface StatCardProps {
   title: string
-  value: string | number
+  value: ReactNode
   subtitle?: string
   icon: string
   trend?: { value: number; label: string }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   exportPlatformRevenue,
   getPlatformRevenueReport,
@@ -6,13 +6,16 @@ import {
   searchPlatformRestaurants,
   type PlatformOrganizationLookupDto,
   type PlatformRestaurantLookupDto,
+  type RevenueExportDto,
   type RevenueGroupBy,
   type RevenueReportDto,
 } from '@/platform/api/platformAdmin'
 import { userFacingApiError } from '@/lib/platformErrors'
 import { Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { Card, CardTitle } from '@/components/ui/Card'
 import { StatCard } from '@/components/ui/StatCard'
+import { EmptyState } from '@/components/ui/EmptyState'
 import {
   DataTable,
   DataTableHead,
@@ -25,47 +28,67 @@ import { Num } from '@/components/ui/Num'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
-import { OrganizationPicker, RestaurantPicker, entityLabel } from '@/platform/ui/EntitySearchPicker'
+import { OrganizationPicker, RestaurantPicker } from '@/platform/ui/EntitySearchPicker'
 import { DateRangeFilter } from '@/platform/ui/DateRangeFilter'
-import { isoDaysAgo, isWithinMaxPlatformRange, todayIso } from '@/platform/ui/dates'
+import { formatPlatformDateTime, isoDaysAgo, isWithinMaxPlatformRange, todayIso } from '@/platform/ui/dates'
 import { PlatformListPage } from '@/platform/ui/PlatformListPage'
+import {
+  formatFeeAmount,
+  groupBucketsByEntity,
+  netRecordedFee,
+  resolveEntityNames,
+  summarizeByCurrency,
+  type NamedEntity,
+} from '@/platform/revenue/revenueReport'
 
 const GROUP_BY_OPTIONS: RevenueGroupBy[] = [
+  'restaurant',
+  'organization',
   'day',
   'week',
   'month',
   'quarter',
   'year',
-  'restaurant',
-  'organization',
   'source',
 ]
 
-function formatMoney(value: number | undefined): string {
-  if (value === undefined || Number.isNaN(value)) return '—'
-  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const ENTITY_GROUP = new Set<RevenueGroupBy>(['restaurant', 'organization'])
+const NAME_PAGE_SIZE = 100
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function currencyCode(currency: string, unknownLabel: string): string {
+  return currency.trim() || unknownLabel
+}
+
+function feeText(amount: number, currency: string, unknownLabel: string): string {
+  return `${formatFeeAmount(amount)} ${currencyCode(currency, unknownLabel)}`
 }
 
 export function PlatformRevenuePage() {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const { toast } = useToast()
   const { canQuery } = usePlatformAccess()
   const p = t.platform.revenue
 
   const [from, setFrom] = useState(() => isoDaysAgo(30))
   const [to, setTo] = useState(() => todayIso())
-  const [groupBy, setGroupBy] = useState<RevenueGroupBy>('day')
+  const [groupBy, setGroupBy] = useState<RevenueGroupBy>('restaurant')
   const [restaurant, setRestaurant] = useState<PlatformRestaurantLookupDto | null>(null)
   const [organization, setOrganization] = useState<PlatformOrganizationLookupDto | null>(null)
-  const [nameMap, setNameMap] = useState<Record<string, string>>({})
+  const [names, setNames] = useState<Map<string, NamedEntity>>(() => new Map())
   const [applied, setApplied] = useState(() => ({
     from: isoDaysAgo(30),
     to: todayIso(),
-    groupBy: 'day' as RevenueGroupBy,
+    groupBy: 'restaurant' as RevenueGroupBy,
     restaurantId: undefined as string | undefined,
     organizationId: undefined as string | undefined,
   }))
   const [report, setReport] = useState<RevenueReportDto | null>(null)
+  const [ledger, setLedger] = useState<RevenueExportDto | null>(null)
+  const [ledgerError, setLedgerError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,39 +108,79 @@ export function PlatformRevenuePage() {
     async (signal?: AbortSignal) => {
       if (!canQuery) {
         setReport(null)
+        setNames(new Map())
+        setLedger(null)
+        setLedgerError(null)
         setLoading(false)
         setError(null)
         return
       }
       setLoading(true)
       setError(null)
+      setReport(null)
+      setNames(new Map())
+      setLedger(null)
+      setLedgerError(null)
       try {
         const result = await getPlatformRevenueReport(applied, signal)
         if (signal?.aborted) return
         setReport(result)
-        if (applied.groupBy === 'restaurant' || applied.groupBy === 'organization') {
-          const lookup =
-            applied.groupBy === 'restaurant'
-              ? await searchPlatformRestaurants({ page: 1, pageSize: 100 }, signal)
-              : await searchPlatformOrganizations({ page: 1, pageSize: 100 }, signal)
-          if (signal?.aborted) return
-          const next: Record<string, string> = {}
-          for (const row of lookup.items ?? []) {
-            next[row.id] = entityLabel(row)
+
+        if (ENTITY_GROUP.has(applied.groupBy)) {
+          try {
+            const resolved = await resolveEntityNames(
+              result.buckets.map((bucket) => bucket.key),
+              async (page, limit) => {
+                const lookup =
+                  applied.groupBy === 'restaurant'
+                    ? await searchPlatformRestaurants({ page, pageSize: limit }, signal)
+                    : await searchPlatformOrganizations({ page, pageSize: limit }, signal)
+                return {
+                  items: lookup.items ?? [],
+                  total: typeof lookup.total === 'number' ? lookup.total : Number.POSITIVE_INFINITY,
+                }
+              },
+              NAME_PAGE_SIZE,
+            )
+            if (!signal?.aborted) setNames(resolved)
+          } catch (err) {
+            if (signal?.aborted || isAbortError(err)) return
+            if (!signal?.aborted) setNames(new Map())
           }
-          setNameMap(next)
-        } else {
-          setNameMap({})
+        } else if (!signal?.aborted) {
+          setNames(new Map())
+        }
+
+        if (signal?.aborted) return
+
+        if (applied.restaurantId) {
+          try {
+            const exported = await exportPlatformRevenue(
+              {
+                from: applied.from,
+                to: applied.to,
+                restaurantId: applied.restaurantId,
+                organizationId: applied.organizationId,
+              },
+              signal,
+            )
+            if (!signal?.aborted) setLedger(exported)
+          } catch (err) {
+            if (signal?.aborted || isAbortError(err)) return
+            setLedger(null)
+            setLedgerError(userFacingApiError(err, t, p.ledgerError))
+          }
         }
       } catch (err) {
-        if (signal?.aborted) return
+        if (signal?.aborted || isAbortError(err)) return
         setError(userFacingApiError(err, t, p.errorLoad))
         setReport(null)
+        setNames(new Map())
       } finally {
         if (!signal?.aborted) setLoading(false)
       }
     },
-    [applied, canQuery, p.errorLoad, t],
+    [applied, canQuery, p.errorLoad, p.ledgerError, t],
   )
 
   useEffect(() => {
@@ -126,19 +189,35 @@ export function PlatformRevenuePage() {
     return () => ac.abort()
   }, [load])
 
-  const buckets = report?.buckets ?? []
-  const recordedTotal = buckets.reduce((sum, bucket) => sum + (bucket.recordedTotal ?? 0), 0)
-  const reversedTotal = buckets.reduce((sum, bucket) => sum + (bucket.reversedTotal ?? 0), 0)
+  const buckets = useMemo(() => report?.buckets ?? [], [report])
+  const entityView = ENTITY_GROUP.has(applied.groupBy)
+  const summaries = useMemo(() => summarizeByCurrency(buckets), [buckets])
+  const groups = useMemo(
+    () => (entityView ? groupBucketsByEntity(buckets, names, locale) : []),
+    [buckets, entityView, locale, names],
+  )
+
+  const statusLabel = (status: string): string => {
+    if (status === 'Recorded') return p.statusRecorded
+    if (status === 'Reversed') return p.statusReversed
+    return status || '—'
+  }
 
   const handleExport = async (): Promise<void> => {
     setExporting(true)
     try {
-      const data = await exportPlatformRevenue({ from: applied.from, to: applied.to })
+      const data = await exportPlatformRevenue({
+        from: applied.from,
+        to: applied.to,
+        restaurantId: applied.restaurantId,
+        organizationId: applied.organizationId,
+      })
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `tavola-revenue-${applied.from}-${applied.to}.json`
+      const restaurantSuffix = applied.restaurantId ? `-${applied.restaurantId}` : ''
+      link.download = `tavola-revenue-${applied.from}-${applied.to}${restaurantSuffix}.json`
       link.click()
       URL.revokeObjectURL(url)
       toast('success', p.exportSuccess)
@@ -224,42 +303,180 @@ export function PlatformRevenuePage() {
         />
       }
     >
-      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <StatCard title={p.summaryRecorded} value={formatMoney(recordedTotal)} icon="payments" variant="success" />
-        <StatCard title={p.summaryReversed} value={formatMoney(reversedTotal)} icon="payments" variant="warning" />
+      <div className="mb-4 space-y-4">
+        {summaries.map((summary) => {
+          const code = currencyCode(summary.currency, p.unknownCurrency)
+          return (
+            <div key={summary.currency || 'unknown'} className="space-y-2">
+              <p className="text-overline text-on-surface-variant">{code}</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <StatCard
+                  title={p.summaryRecorded}
+                  value={<Num>{feeText(summary.recordedTotal, summary.currency, p.unknownCurrency)}</Num>}
+                  icon="payments"
+                  variant="success"
+                />
+                <StatCard
+                  title={p.summaryReversed}
+                  value={<Num>{feeText(summary.reversedTotal, summary.currency, p.unknownCurrency)}</Num>}
+                  icon="payments"
+                  variant="warning"
+                />
+                <StatCard
+                  title={p.summaryNet}
+                  value={<Num>{feeText(summary.netRecorded, summary.currency, p.unknownCurrency)}</Num>}
+                  icon="payments"
+                  variant="primary"
+                />
+              </div>
+            </div>
+          )
+        })}
       </div>
-      <DataTable>
-        <DataTableHead>
-          <DataTableHeader>{p.colKey}</DataTableHeader>
-          <DataTableHeader>{p.colCurrency}</DataTableHeader>
-          <DataTableHeader numeric>{p.colRecordedCount}</DataTableHeader>
-          <DataTableHeader numeric>{p.colRecordedTotal}</DataTableHeader>
-          <DataTableHeader numeric>{p.colReversedCount}</DataTableHeader>
-          <DataTableHeader numeric>{p.colReversedTotal}</DataTableHeader>
-        </DataTableHead>
-        <DataTableBody>
-          {buckets.map((bucket) => (
-            <DataTableRow key={`${bucket.key}-${bucket.currency ?? ''}`}>
-              <DataTableCell className="font-medium">
-                {nameMap[bucket.key] ?? bucket.key}
-              </DataTableCell>
-              <DataTableCell>{bucket.currency ?? '—'}</DataTableCell>
-              <DataTableCell numeric>
-                <Num>{bucket.recordedCount ?? '—'}</Num>
-              </DataTableCell>
-              <DataTableCell numeric>
-                <Num>{formatMoney(bucket.recordedTotal)}</Num>
-              </DataTableCell>
-              <DataTableCell numeric>
-                <Num>{bucket.reversedCount ?? '—'}</Num>
-              </DataTableCell>
-              <DataTableCell numeric>
-                <Num>{formatMoney(bucket.reversedTotal)}</Num>
-              </DataTableCell>
-            </DataTableRow>
+
+      {entityView ? (
+        <div className="space-y-4">
+          {groups.map((group) => (
+            <Card key={group.id} className="space-y-3">
+              <div>
+                <CardTitle>{group.title}</CardTitle>
+                {group.slug ? (
+                  <p className="mt-1 text-body-sm text-on-surface-variant">{group.slug}</p>
+                ) : null}
+              </div>
+              <DataTable bare>
+                <DataTableHead>
+                  <DataTableHeader>{p.colCurrency}</DataTableHeader>
+                  <DataTableHeader numeric>{p.colRecordedCount}</DataTableHeader>
+                  <DataTableHeader numeric>{p.colRecordedTotal}</DataTableHeader>
+                  <DataTableHeader numeric>{p.colReversedCount}</DataTableHeader>
+                  <DataTableHeader numeric>{p.colReversedTotal}</DataTableHeader>
+                  <DataTableHeader numeric>{p.colNet}</DataTableHeader>
+                </DataTableHead>
+                <DataTableBody>
+                  {group.currencies.map((row) => (
+                    <DataTableRow key={`${group.id}-${row.currency || 'unknown'}`}>
+                      <DataTableCell className="font-medium">
+                        {currencyCode(row.currency, p.unknownCurrency)}
+                      </DataTableCell>
+                      <DataTableCell numeric>
+                        <Num>{row.recordedCount}</Num>
+                      </DataTableCell>
+                      <DataTableCell numeric>
+                        <Num>{feeText(row.recordedTotal, row.currency, p.unknownCurrency)}</Num>
+                      </DataTableCell>
+                      <DataTableCell numeric>
+                        <Num>{row.reversedCount}</Num>
+                      </DataTableCell>
+                      <DataTableCell numeric>
+                        <Num>{feeText(row.reversedTotal, row.currency, p.unknownCurrency)}</Num>
+                      </DataTableCell>
+                      <DataTableCell numeric>
+                        <Num>{feeText(row.netRecorded, row.currency, p.unknownCurrency)}</Num>
+                      </DataTableCell>
+                    </DataTableRow>
+                  ))}
+                </DataTableBody>
+              </DataTable>
+            </Card>
           ))}
-        </DataTableBody>
-      </DataTable>
+        </div>
+      ) : (
+        <DataTable>
+          <DataTableHead>
+            <DataTableHeader>{p.colKey}</DataTableHeader>
+            <DataTableHeader>{p.colCurrency}</DataTableHeader>
+            <DataTableHeader numeric>{p.colRecordedCount}</DataTableHeader>
+            <DataTableHeader numeric>{p.colRecordedTotal}</DataTableHeader>
+            <DataTableHeader numeric>{p.colReversedCount}</DataTableHeader>
+            <DataTableHeader numeric>{p.colReversedTotal}</DataTableHeader>
+            <DataTableHeader numeric>{p.colNet}</DataTableHeader>
+          </DataTableHead>
+          <DataTableBody>
+            {buckets.map((bucket, index) => {
+              const net = netRecordedFee(bucket.recordedTotal, bucket.reversedTotal)
+              return (
+                <DataTableRow key={`${bucket.key}-${bucket.currency || 'unknown'}-${index}`}>
+                  <DataTableCell className="font-medium">{bucket.key || '—'}</DataTableCell>
+                  <DataTableCell>{currencyCode(bucket.currency, p.unknownCurrency)}</DataTableCell>
+                  <DataTableCell numeric>
+                    <Num>{bucket.recordedCount}</Num>
+                  </DataTableCell>
+                  <DataTableCell numeric>
+                    <Num>{feeText(bucket.recordedTotal, bucket.currency, p.unknownCurrency)}</Num>
+                  </DataTableCell>
+                  <DataTableCell numeric>
+                    <Num>{bucket.reversedCount}</Num>
+                  </DataTableCell>
+                  <DataTableCell numeric>
+                    <Num>{feeText(bucket.reversedTotal, bucket.currency, p.unknownCurrency)}</Num>
+                  </DataTableCell>
+                  <DataTableCell numeric>
+                    <Num>{feeText(net, bucket.currency, p.unknownCurrency)}</Num>
+                  </DataTableCell>
+                </DataTableRow>
+              )
+            })}
+          </DataTableBody>
+        </DataTable>
+      )}
+
+      {applied.restaurantId && (ledger || ledgerError) ? (
+        <Card className="mt-4 space-y-3">
+          <div>
+            <CardTitle>{p.ledgerTitle}</CardTitle>
+            <p className="mt-1 text-body-sm text-on-surface-variant">{p.ledgerBody}</p>
+          </div>
+          {ledgerError ? (
+            <EmptyState
+              icon="error"
+              title={p.ledgerError}
+              description={ledgerError}
+              action={
+                <Button variant="secondary" onClick={() => void load()}>
+                  {t.common.retry}
+                </Button>
+              }
+            />
+          ) : ledger && ledger.rows.length === 0 ? (
+            <EmptyState icon="payments" title={p.ledgerEmptyTitle} description={p.ledgerEmptyBody} />
+          ) : ledger ? (
+            <DataTable bare>
+              <DataTableHead>
+                <DataTableHeader>{p.colStatus}</DataTableHeader>
+                <DataTableHeader numeric>{p.colFee}</DataTableHeader>
+                <DataTableHeader>{p.colRecordedAt}</DataTableHeader>
+                <DataTableHeader>{p.colReversedAt}</DataTableHeader>
+                <DataTableHeader>{p.colCreatedVia}</DataTableHeader>
+              </DataTableHead>
+              <DataTableBody>
+                {ledger.rows.map((row) => (
+                  <DataTableRow key={row.id || `${row.recordedAt}-${row.feeAmount}`}>
+                    <DataTableCell>
+                      <div className="font-medium">{statusLabel(row.status)}</div>
+                      {row.customerIdentityKey ? (
+                        <div dir="ltr" className="mt-0.5 text-meta text-on-surface-variant">
+                          {row.customerIdentityKey}
+                        </div>
+                      ) : null}
+                    </DataTableCell>
+                    <DataTableCell numeric>
+                      <Num>{feeText(row.feeAmount, row.feeCurrency, p.unknownCurrency)}</Num>
+                    </DataTableCell>
+                    <DataTableCell>
+                      {row.recordedAt ? formatPlatformDateTime(row.recordedAt, locale) : '—'}
+                    </DataTableCell>
+                    <DataTableCell>
+                      {row.reversedAt ? formatPlatformDateTime(row.reversedAt, locale) : '—'}
+                    </DataTableCell>
+                    <DataTableCell>{row.createdVia || '—'}</DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
+          ) : null}
+        </Card>
+      ) : null}
     </PlatformListPage>
   )
 }

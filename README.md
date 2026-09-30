@@ -26,6 +26,7 @@ mklink /J node_modules D:\Tavola\node_modules
 - Empty list search omits `q` rather than sending `q=`.
 - Broadcast `202` is shown as **queued**, not delivered.
 - Revenue / dashboard / audit date ranges are validated client-side to 366 days.
+- Revenue opens grouped by restaurant. Recorded, reversed, and net recorded fee are shown per currency and are never added across currencies. Net recorded fee is recorded minus reversed. Export uses the applied `from`, `to`, `restaurantId`, and `organizationId`.
 - Console pages map to `03 - Platform Owner` in `postman/TAVLA-API.postman_collection.json`. Subscriptions live at `/platform/subscriptions`.
 
 ## Layout

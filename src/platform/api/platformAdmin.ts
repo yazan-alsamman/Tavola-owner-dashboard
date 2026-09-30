@@ -95,6 +95,64 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+function readFiniteNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function readNullableString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+export function normalizeRevenueReport(raw: unknown): RevenueReportDto {
+  const record = asObject(raw)
+  const bucketsRaw = Array.isArray(record.buckets) ? record.buckets : []
+  return {
+    groupBy: readOptionalString(record, 'groupBy') ?? '',
+    buckets: bucketsRaw.map((item) => {
+      const row = asObject(item)
+      return {
+        key: readOptionalString(row, 'key') ?? '',
+        currency: readOptionalString(row, 'currency')?.trim() ?? '',
+        recordedCount: readFiniteNumber(row.recordedCount),
+        recordedTotal: readFiniteNumber(row.recordedTotal),
+        reversedCount: readFiniteNumber(row.reversedCount),
+        reversedTotal: readFiniteNumber(row.reversedTotal),
+      }
+    }),
+  }
+}
+
+export function normalizeRevenueExport(raw: unknown): RevenueExportDto {
+  const record = asObject(raw)
+  const rowsRaw = Array.isArray(record.rows) ? record.rows : []
+  return {
+    total: readFiniteNumber(record.total),
+    rows: rowsRaw.map((item) => {
+      const row = asObject(item)
+      return {
+        id: readOptionalString(row, 'id') ?? '',
+        restaurantId: readOptionalString(row, 'restaurantId') ?? '',
+        organizationId: readOptionalString(row, 'organizationId') ?? '',
+        customerIdentityKey: readOptionalString(row, 'customerIdentityKey') ?? '',
+        createdVia: readOptionalString(row, 'createdVia') ?? '',
+        status: readOptionalString(row, 'status') ?? '',
+        feeAmount: readFiniteNumber(row.feeAmount),
+        feeCurrency: readOptionalString(row, 'feeCurrency')?.trim() ?? '',
+        recordedAt: readOptionalString(row, 'recordedAt') ?? '',
+        reversedAt: readNullableString(row, 'reversedAt'),
+      }
+    }),
+  }
+}
+
 export function normalizePlatformAdminMe(raw: unknown): PlatformAdminMeDto {
   const record = asObject(raw)
   const userId = readOptionalString(record, 'userId') ?? ''
@@ -123,18 +181,41 @@ export function adminRecordId(row: unknown): string {
   return readOptionalString(record, 'id') ?? readOptionalString(record, 'platformAdminId') ?? ''
 }
 
+/** Postman `GET /platform-admin/revenue/report` bucket. One currency per bucket. */
+export interface RevenueBucketDto {
+  key: string
+  /** Empty when the API omits currency. Never treated as another currency. */
+  currency: string
+  recordedCount: number
+  recordedTotal: number
+  reversedCount: number
+  reversedTotal: number
+}
+
+/** Postman `GET /platform-admin/revenue/report` `data`. */
 export interface RevenueReportDto {
   groupBy: string
-  buckets: Array<{
-    key: string
-    currency?: string
-    recordedCount?: number
-    recordedTotal?: number
-    reversedCount?: number
-    reversedTotal?: number
-    [key: string]: unknown
-  }>
-  [key: string]: unknown
+  buckets: RevenueBucketDto[]
+}
+
+/** Postman `GET /platform-admin/revenue/export` row. Fee snapshot only. */
+export interface RevenueExportRowDto {
+  id: string
+  restaurantId: string
+  organizationId: string
+  customerIdentityKey: string
+  createdVia: string
+  status: string
+  feeAmount: number
+  feeCurrency: string
+  recordedAt: string
+  reversedAt: string | null
+}
+
+/** Postman `GET /platform-admin/revenue/export` `data`. */
+export interface RevenueExportDto {
+  total: number
+  rows: RevenueExportRowDto[]
 }
 
 export type RevenueGroupBy =
@@ -543,7 +624,7 @@ export async function getPlatformRevenueReport(
   },
   signal?: AbortSignal,
 ): Promise<RevenueReportDto> {
-  return apiRequest<RevenueReportDto>('/platform-admin/revenue/report', {
+  const raw = await apiRequest<unknown>('/platform-admin/revenue/report', {
     query: {
       from: toPlatformIsoDateTime(params.from, 'start'),
       to: toPlatformIsoDateTime(params.to, 'end'),
@@ -553,19 +634,28 @@ export async function getPlatformRevenueReport(
     },
     signal,
   })
+  return normalizeRevenueReport(raw)
 }
 
 export async function exportPlatformRevenue(
-  params: { from: string; to: string },
+  params: {
+    from: string
+    to: string
+    restaurantId?: string
+    organizationId?: string
+  },
   signal?: AbortSignal,
-): Promise<unknown> {
-  return apiRequest('/platform-admin/revenue/export', {
+): Promise<RevenueExportDto> {
+  const raw = await apiRequest<unknown>('/platform-admin/revenue/export', {
     query: {
       from: toPlatformIsoDateTime(params.from, 'start'),
       to: toPlatformIsoDateTime(params.to, 'end'),
+      restaurantId: params.restaurantId,
+      organizationId: params.organizationId,
     },
     signal,
   })
+  return normalizeRevenueExport(raw)
 }
 
 export async function listPlatformAcquisitions(
