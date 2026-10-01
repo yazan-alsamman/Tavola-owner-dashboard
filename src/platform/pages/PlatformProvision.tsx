@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { provisionRestaurantOwner } from '@/platform/api/platformAdmin'
 import { userFacingApiError } from '@/lib/platformErrors'
-import { generateSecurePassword, copyText } from '@/lib/platformCredentials'
+import { generateSecurePassword, copyText, passwordRequirementMessage } from '@/lib/platformCredentials'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -21,6 +21,7 @@ export function PlatformProvisionPage() {
   const navigate = useNavigate()
   const { canQuery, canMutate } = usePlatformAccess()
   const p = t.platform.provision
+  const c = t.platform.common
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -33,6 +34,13 @@ export function PlatformProvisionPage() {
   const [submitting, setSubmitting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [success, setSuccess] = useState<{ email: string; password: string } | null>(null)
+  const passwordError = passwordRequirementMessage(password, {
+    length: c.passwordNeedLength,
+    uppercase: c.passwordNeedUpper,
+    lowercase: c.passwordNeedLower,
+    number: c.passwordNeedNumber,
+    special: c.passwordNeedSpecial,
+  })
 
   const resetForm = (): void => {
     setEmail('')
@@ -136,6 +144,10 @@ export function PlatformProvisionPage() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
+            if (passwordError) {
+              toast('error', passwordError)
+              return
+            }
             setConfirmOpen(true)
           }}
           className="space-y-4"
@@ -170,6 +182,7 @@ export function PlatformProvisionPage() {
           <GeneratedSecretField
             label={p.password}
             hint={p.passwordHint}
+            error={passwordError ?? undefined}
             value={password}
             disabled={!canMutate || submitting}
             generateLabel={t.platform.common.generatePassword}

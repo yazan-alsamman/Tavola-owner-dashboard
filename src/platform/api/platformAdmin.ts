@@ -176,6 +176,36 @@ export function accountRecordId(row: unknown): string {
   return readOptionalString(record, 'id') ?? readOptionalString(record, 'userId') ?? ''
 }
 
+/**
+ * Accounts list/detail return `userId` (Postman), not `id`.
+ * Normalize so pickers and tables always have a stable `id` for keys and targetUserId.
+ */
+export function normalizePlatformUserAccount(raw: unknown): PlatformUserAccountDto {
+  const record = asObject(raw)
+  const id = accountRecordId(record)
+  return {
+    ...(record as PlatformUserAccountDto),
+    id,
+    userId: readOptionalString(record, 'userId') ?? id,
+    email: readOptionalString(record, 'email'),
+    status: readOptionalString(record, 'status'),
+    accountType: readOptionalString(record, 'accountType'),
+    firstName: readOptionalString(record, 'firstName'),
+    lastName: readOptionalString(record, 'lastName'),
+    phone: readOptionalString(record, 'phone'),
+    deletedAt: readNullableString(record, 'deletedAt'),
+  }
+}
+
+function normalizeAccountPage(
+  raw: PaginatedData<PlatformUserAccountDto>,
+): PaginatedData<PlatformUserAccountDto> {
+  return {
+    ...raw,
+    items: (raw.items ?? []).map((item) => normalizePlatformUserAccount(item)),
+  }
+}
+
 export function adminRecordId(row: unknown): string {
   const record = asObject(row)
   return readOptionalString(record, 'id') ?? readOptionalString(record, 'platformAdminId') ?? ''
@@ -478,6 +508,8 @@ export async function transferPlatformOrganizationOwnership(
 
 export interface PlatformUserAccountDto {
   id: string
+  /** Present on API payloads; same value as `id` after normalize. */
+  userId?: string
   email?: string
   status?: string
   accountType?: string
@@ -498,7 +530,7 @@ export async function searchPlatformAccounts(
   } = {},
   signal?: AbortSignal,
 ): Promise<PaginatedData<PlatformUserAccountDto>> {
-  return apiRequest<PaginatedData<PlatformUserAccountDto>>('/platform-admin/accounts', {
+  const raw = await apiRequest<PaginatedData<PlatformUserAccountDto>>('/platform-admin/accounts', {
     query: {
       q: params.q?.trim() || undefined,
       status: params.status || undefined,
@@ -508,15 +540,17 @@ export async function searchPlatformAccounts(
     },
     signal,
   })
+  return normalizeAccountPage(raw)
 }
 
 export async function getPlatformAccount(
   accountId: string,
   signal?: AbortSignal,
 ): Promise<PlatformUserAccountDto> {
-  return apiRequest<PlatformUserAccountDto>(`/platform-admin/accounts/${accountId}`, {
+  const raw = await apiRequest<PlatformUserAccountDto>(`/platform-admin/accounts/${accountId}`, {
     signal,
   })
+  return normalizePlatformUserAccount(raw)
 }
 
 export async function forceLogoutPlatformAccount(accountId: string): Promise<unknown> {

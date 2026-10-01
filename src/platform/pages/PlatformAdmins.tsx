@@ -9,7 +9,7 @@ import {
   type PlatformAdminRole,
 } from '@/platform/api/platformAdmin'
 import { userFacingApiError } from '@/lib/platformErrors'
-import { generateSecurePassword } from '@/lib/platformCredentials'
+import { generateSecurePassword, passwordRequirementMessage } from '@/lib/platformCredentials'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { ConfirmDialog, Modal } from '@/components/ui/Modal'
@@ -40,6 +40,7 @@ export function PlatformAdminsPage() {
   const { toast } = useToast()
   const { canQuery, canMutate } = usePlatformAccess()
   const p = t.platform.admins
+  const c = t.platform.common
 
   const [items, setItems] = useState<PlatformAdminAccountDto[]>([])
   const [total, setTotal] = useState(0)
@@ -60,6 +61,13 @@ export function PlatformAdminsPage() {
     firstName: '',
     lastName: '',
     role: 'PlatformSupport' as PlatformAdminRole,
+  })
+  const passwordError = passwordRequirementMessage(form.password, {
+    length: c.passwordNeedLength,
+    uppercase: c.passwordNeedUpper,
+    lowercase: c.passwordNeedLower,
+    number: c.passwordNeedNumber,
+    special: c.passwordNeedSpecial,
   })
 
   const load = useCallback(
@@ -118,6 +126,10 @@ export function PlatformAdminsPage() {
     e.preventDefault()
     if (!canMutate) {
       toast('error', p.needAuth)
+      return
+    }
+    if (passwordError) {
+      toast('error', passwordError)
       return
     }
     if (!form.email.trim() || !form.password || !form.firstName.trim() || !form.lastName.trim()) {
@@ -200,6 +212,7 @@ export function PlatformAdminsPage() {
                 <GeneratedSecretField
                   label={p.password}
                   hint={p.passwordHint}
+                  error={passwordError ?? undefined}
                   value={form.password}
                   disabled={!canMutate || creating}
                   generateLabel={t.platform.common.generatePassword}

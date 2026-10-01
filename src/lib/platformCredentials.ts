@@ -1,7 +1,37 @@
-const LETTERS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ'
+const LOWER = 'abcdefghijkmnopqrstuvwxyz'
+const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
 const NUMBERS = '23456789'
 const SPECIAL = '!@#$%&*?'
-const ALL = `${LETTERS}${NUMBERS}${SPECIAL}`
+const ALL = `${LOWER}${UPPER}${NUMBERS}${SPECIAL}`
+
+/** Owner passwords set while creating an organization. */
+export const ORGANIZATION_PASSWORD_MIN = 8
+
+export type PasswordIssue = 'length' | 'uppercase' | 'lowercase' | 'number' | 'special'
+
+/** Missing rules for an organization owner password. Empty password reports every rule. */
+export function passwordIssues(
+  password: string,
+  minLength = ORGANIZATION_PASSWORD_MIN,
+): PasswordIssue[] {
+  const issues: PasswordIssue[] = []
+  if (password.length < minLength) issues.push('length')
+  if (!/[A-Z]/.test(password)) issues.push('uppercase')
+  if (!/[a-z]/.test(password)) issues.push('lowercase')
+  if (!/[0-9]/.test(password)) issues.push('number')
+  if (!/[^A-Za-z0-9]/.test(password)) issues.push('special')
+  return issues
+}
+
+export function passwordRequirementMessage(
+  password: string,
+  copy: Record<PasswordIssue, string>,
+): string | null {
+  if (!password) return null
+  const issues = passwordIssues(password)
+  if (issues.length === 0) return null
+  return issues.map((issue) => copy[issue]).join(' ')
+}
 
 function randomFrom(alphabet: string, count: number, bytes: Uint8Array, offset: number): string {
   let out = ''
@@ -24,8 +54,8 @@ export function slugFromName(name: string): string {
 }
 
 /**
- * Cryptographically random password that satisfies typical platform rules:
- * length ≥ 12, letter, number, special character.
+ * Cryptographically random password that satisfies organization owner rules:
+ * length ≥ 12, uppercase, lowercase, number, and special character.
  * Never log or persist the result outside component state.
  */
 export function generateSecurePassword(length = 16): string {
@@ -33,11 +63,12 @@ export function generateSecurePassword(length = 16): string {
   const bytes = new Uint8Array(size)
   crypto.getRandomValues(bytes)
   const required = [
-    randomFrom(LETTERS, 1, bytes, 0),
-    randomFrom(NUMBERS, 1, bytes, 1),
-    randomFrom(SPECIAL, 1, bytes, 2),
+    randomFrom(LOWER, 1, bytes, 0),
+    randomFrom(UPPER, 1, bytes, 1),
+    randomFrom(NUMBERS, 1, bytes, 2),
+    randomFrom(SPECIAL, 1, bytes, 3),
   ]
-  const rest = randomFrom(ALL, size - required.length, bytes, 3)
+  const rest = randomFrom(ALL, size - required.length, bytes, 4)
   const chars = [...required, ...rest.split('')]
   for (let i = chars.length - 1; i > 0; i -= 1) {
     const j = bytes[i]! % (i + 1)

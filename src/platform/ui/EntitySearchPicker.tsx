@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {
+  accountRecordId,
   listPlatformAdmins,
   searchPlatformAccounts,
   searchPlatformOrganizations,
@@ -345,7 +346,12 @@ export function AccountPicker({
         { q, accountType, page: 1, pageSize: 8 },
         signal,
       )
-      return result.items ?? []
+      return (result.items ?? [])
+        .map((row) => ({
+          ...row,
+          id: accountRecordId(row),
+        }))
+        .filter((row) => row.id.length > 0)
     },
     [accountType],
   )

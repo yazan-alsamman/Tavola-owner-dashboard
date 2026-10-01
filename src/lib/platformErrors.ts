@@ -1,4 +1,4 @@
-import { formatApiFieldErrors, isApiError } from '@/api/errors'
+import { ApiError, formatApiFieldErrors, isApiError } from '@/api/errors'
 import type { TranslationKeys } from '@/i18n/en'
 
 const UUID_FIELD_HINTS: Array<{ pattern: RegExp; key: keyof TranslationKeys['platform']['errors'] }> = [
@@ -8,6 +8,14 @@ const UUID_FIELD_HINTS: Array<{ pattern: RegExp; key: keyof TranslationKeys['pla
   { pattern: /subscriptionPlanId|planId/i, key: 'selectPlan' },
   { pattern: /must be a UUID/i, key: 'selectValidItem' },
 ]
+
+function passwordValidationText(error: ApiError, fieldText: string): string | null {
+  const candidates = [fieldText, error.message].filter((value) => value.trim().length > 0)
+  for (const text of candidates) {
+    if (/password/i.test(text)) return text
+  }
+  return null
+}
 
 function mapUuidMessage(
   message: string,
@@ -41,6 +49,11 @@ export function userFacingApiError(
 
   const uuidFromMessage = mapUuidMessage(error.message, errors)
   if (uuidFromMessage) return uuidFromMessage
+
+  const passwordText = passwordValidationText(error, fieldText)
+  if (passwordText && (error.code === 'VALIDATION_ERROR' || error.status === 400)) {
+    return passwordText
+  }
 
   switch (error.code) {
     case 'AUTH_INVALID_CREDENTIALS':

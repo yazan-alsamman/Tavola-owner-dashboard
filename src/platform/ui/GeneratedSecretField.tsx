@@ -7,6 +7,7 @@ import { copyText } from '@/lib/platformCredentials'
 export function GeneratedSecretField({
   label,
   hint,
+  error,
   value,
   disabled,
   generateLabel,
@@ -18,6 +19,7 @@ export function GeneratedSecretField({
 }: {
   label: string
   hint?: string
+  error?: string
   value: string
   disabled?: boolean
   generateLabel: string
@@ -45,6 +47,7 @@ export function GeneratedSecretField({
         spellCheck={false}
         label={label}
         hint={hint}
+        error={error}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

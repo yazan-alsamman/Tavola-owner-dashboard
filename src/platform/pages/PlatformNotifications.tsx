@@ -102,12 +102,21 @@ export function PlatformNotificationsPage() {
     return () => ac.abort()
   }, [loadHistory])
 
+  const targetUserId = accountRecordId(targetUser ?? { id: '' })
+
   const send = async (): Promise<void> => {
+    const nextTitle = title.trim()
+    const nextBody = body.trim()
+    if (!nextTitle || !nextBody) {
+      toast('error', p.broadcastValidation)
+      setConfirmOpen(false)
+      return
+    }
     setSubmitting(true)
     try {
       const result = await broadcastPlatformNotification({
-        title: title.trim(),
-        body: body.trim(),
+        title: nextTitle,
+        body: nextBody,
       })
       toast('success', p.successTitle, p.successBody.replace('{count}', String(result.totalRecipients)))
       setTitle('')
@@ -122,16 +131,19 @@ export function PlatformNotificationsPage() {
   }
 
   const sendOne = async (): Promise<void> => {
-    if (!accountRecordId(targetUser ?? { id: '' }) || !oneTitle.trim() || !oneBody.trim()) {
+    const nextTitle = oneTitle.trim()
+    const nextBody = oneBody.trim()
+    if (!targetUserId || !nextTitle || !nextBody) {
       toast('error', p.sendOneValidation)
+      setConfirmOne(false)
       return
     }
     setSubmitting(true)
     try {
       await sendPlatformNotification({
-        targetUserId: accountRecordId(targetUser ?? { id: '' }),
-        title: oneTitle.trim(),
-        body: oneBody.trim(),
+        targetUserId,
+        title: nextTitle,
+        body: nextBody,
       })
       toast('success', p.sendOneSuccess)
       setTargetUser(null)
@@ -174,6 +186,10 @@ export function PlatformNotificationsPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
+              if (!title.trim() || !body.trim()) {
+                toast('error', p.broadcastValidation)
+                return
+              }
               setConfirmOpen(true)
             }}
             className="space-y-4"
@@ -201,10 +217,15 @@ export function PlatformNotificationsPage() {
         </Card>
 
         <Card className="space-y-4">
+          <CardTitle>{p.sendOneTitle}</CardTitle>
           <p className="text-body-sm text-on-surface-variant">{p.sendOneHint}</p>
           <form
             onSubmit={(e) => {
               e.preventDefault()
+              if (!targetUserId || !oneTitle.trim() || !oneBody.trim()) {
+                toast('error', p.sendOneValidation)
+                return
+              }
               setConfirmOne(true)
             }}
             className="space-y-4"
@@ -233,7 +254,7 @@ export function PlatformNotificationsPage() {
               disabled={!canMutate || submitting}
               rows={5}
             />
-            <Button type="submit" disabled={!canMutate} loading={submitting}>
+            <Button type="submit" disabled={!canMutate || !targetUserId} loading={submitting}>
               <MaterialIcon name="send" size={16} />
               {p.sendOne}
             </Button>

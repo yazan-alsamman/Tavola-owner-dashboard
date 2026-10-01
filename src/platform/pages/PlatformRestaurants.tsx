@@ -28,7 +28,7 @@ import {
 import { MaterialIcon } from '@/components/ui/Icon'
 import { useLocale } from '@/context/LocaleContext'
 import { useToast } from '@/context/ToastContext'
-import { generateSecurePassword, slugFromName } from '@/lib/platformCredentials'
+import { generateSecurePassword, passwordRequirementMessage, slugFromName } from '@/lib/platformCredentials'
 import { userFacingApiError } from '@/lib/platformErrors'
 import { usePlatformAccess } from '@/platform/auth/usePlatformAccess'
 import { ActionMenu } from '@/platform/ui/ActionMenu'
@@ -191,12 +191,20 @@ export function PlatformRestaurantsPage() {
 
   const canAdvanceRestaurant = Boolean(createForm.name.trim() && createForm.slug.trim())
   const canAdvanceOrg = orgMode === 'new' || Boolean(createOrg?.id)
+  const ownerPasswordError = passwordRequirementMessage(owner.password, {
+    length: c.passwordNeedLength,
+    uppercase: c.passwordNeedUpper,
+    lowercase: c.passwordNeedLower,
+    number: c.passwordNeedNumber,
+    special: c.passwordNeedSpecial,
+  })
   const canAdvanceOwner =
     Boolean(
       owner.firstName.trim() &&
         owner.lastName.trim() &&
         owner.email.trim() &&
-        owner.password.length >= 8 &&
+        owner.password &&
+        !ownerPasswordError &&
         owner.organizationName.trim(),
     )
 
@@ -243,6 +251,11 @@ export function PlatformRestaurantsPage() {
     try {
       let organizationId = createOrg?.id ?? ''
       if (orgMode === 'new') {
+        if (ownerPasswordError) {
+          toast('error', ownerPasswordError)
+          setCreating(false)
+          return
+        }
         if (!canAdvanceOwner) {
           toast('error', p.createValidation)
           setCreating(false)
@@ -611,6 +624,7 @@ export function PlatformRestaurantsPage() {
               <GeneratedSecretField
                 label={p.ownerPassword}
                 hint={prov.passwordHint}
+                error={ownerPasswordError ?? undefined}
                 value={owner.password}
                 disabled={creating}
                 generateLabel={c.generatePassword}
