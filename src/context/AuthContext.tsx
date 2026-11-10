@@ -15,6 +15,7 @@ import {
   type PlatformAdminMeDto,
 } from '@/platform/api/platformAdmin'
 import { tokenStore } from '@/api/tokenStore'
+import { tryRefreshPlatformSession } from '@/api/client'
 import { parseAccessTokenClaims } from '@/lib/accessTokenClaims'
 import {
   buildDisplayName,
@@ -172,6 +173,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const bootstrap = async (): Promise<void> => {
+      if (!tokenStore.getAccessToken() && tokenStore.getRefreshToken()) {
+        await tryRefreshPlatformSession()
+        if (cancelled) return
+      }
       const token = tokenStore.getAccessToken()
       if (!token) {
         setCanClearSessions(Boolean(tokenStore.getRefreshToken()))

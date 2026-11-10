@@ -24,7 +24,12 @@ function shouldInvalidateSession(error: ApiError, options: ApiRequestOptions): b
 
 let refreshInFlight: Promise<boolean> | null = null
 
-async function tryRefreshPlatformSession(): Promise<boolean> {
+/**
+ * Rotates the platform session with the stored refresh token. Concurrent
+ * callers share one request. Also used at startup, because the access token
+ * lives in memory only and is gone after a reload.
+ */
+export async function tryRefreshPlatformSession(): Promise<boolean> {
   const refreshToken = tokenStore.getRefreshToken()
   if (!refreshToken) return false
 
