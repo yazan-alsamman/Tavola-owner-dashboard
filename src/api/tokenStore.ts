@@ -1,39 +1,28 @@
 /**
  * Auth token bridge between AuthProvider and the API client.
  *
- * Access token: memory + sessionStorage for this tab.
- * Refresh token: stored when login returns one; used by
+ * Access token: memory only, never written to storage, so a script injected
+ * into the page cannot lift a live platform token from sessionStorage. A page
+ * reload gets a fresh one from the refresh token.
+ * Refresh token: sessionStorage for this tab; used by
  * `POST /platform-admin/refresh` and logout. Never call restaurant
  * `POST /auth/refresh` with a platform token.
  */
 
-const ACCESS_TOKEN_STORAGE_KEY = 'tavola-platform-access-token'
+/** Earlier builds kept the access token here; it is removed on load. */
+const LEGACY_ACCESS_TOKEN_STORAGE_KEY = 'tavola-platform-access-token'
 const REFRESH_TOKEN_STORAGE_KEY = 'tavola-platform-refresh-token'
 
-let accessToken: string | null | undefined
+let accessToken: string | null = null
+
+try {
+  sessionStorage.removeItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY)
+} catch {
+  // Storage may be unavailable (private mode / SSR); ignore.
+}
 
 type SessionInvalidatedListener = () => void
 const sessionInvalidatedListeners = new Set<SessionInvalidatedListener>()
-
-function readAccessTokenFromStorage(): string | null {
-  try {
-    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-function writeAccessTokenToStorage(token: string | null): void {
-  try {
-    if (token === null) {
-      sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY)
-    } else {
-      sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token)
-    }
-  } catch {
-    // Storage may be unavailable (private mode / SSR); ignore.
-  }
-}
 
 function readRefreshTokenFromStorage(): string | null {
   try {
@@ -69,15 +58,11 @@ function writeRefreshTokenToStorage(token: string | null): void {
 
 export const tokenStore = {
   getAccessToken(): string | null {
-    if (accessToken === undefined) {
-      accessToken = readAccessTokenFromStorage()
-    }
     return accessToken
   },
 
   setAccessToken(token: string | null): void {
     accessToken = token
-    writeAccessTokenToStorage(token)
   },
 
   getRefreshToken(): string | null {
@@ -90,13 +75,11 @@ export const tokenStore = {
 
   setTokens(tokens: { accessToken: string; refreshToken: string | null }): void {
     accessToken = tokens.accessToken
-    writeAccessTokenToStorage(tokens.accessToken)
     writeRefreshTokenToStorage(tokens.refreshToken)
   },
 
   clear(): void {
     accessToken = null
-    writeAccessTokenToStorage(null)
     writeRefreshTokenToStorage(null)
   },
 

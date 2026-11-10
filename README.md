@@ -19,7 +19,7 @@ If `npm install` fails for disk space, you can temporarily reuse the restaurant 
 mklink /J node_modules D:\Tavola\node_modules
 ```
 
-- Login is required by default. Set `VITE_PLATFORM_PREVIEW=true` only to browse UI chrome without a token.
+- Login is required by default. Set `VITE_PLATFORM_PREVIEW=true` only to browse UI chrome without a token; it works with `npm run dev` only and is ignored by `npm run build`.
 - API: same backend as restaurant (`https://api.tavola.business` via Vite proxy `/api/v1`).
 - Auth is **only** `POST /platform-admin/login` with Bearer `platformAdminAccessToken`. This app does **not** call restaurant `POST /auth/login` or `POST /auth/refresh`.
 - Session identity comes from `GET /platform-admin/me` (`userId`, `platformAdminId`, live `role`). JWT `role` is PlatformAdmin / PlatformSupport — not `actorType`.
