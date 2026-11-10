@@ -7,9 +7,11 @@ import { isPlatformActor } from '@/types/auth'
  * Browse platform UI without PlatformAdmin auth.
  * Off by default — this app’s login wall is the intended entry.
  * Set `VITE_PLATFORM_PREVIEW=true` to skip auth while exploring UI.
+ * Only honoured by the dev server: a production build always requires login,
+ * even if the variable was set by mistake when building.
  */
 export function isPlatformPreviewEnabled(): boolean {
-  return import.meta.env.VITE_PLATFORM_PREVIEW === 'true'
+  return import.meta.env.DEV && import.meta.env.VITE_PLATFORM_PREVIEW === 'true'
 }
 
 function AuthLoadingScreen() {
